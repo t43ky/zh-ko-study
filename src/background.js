@@ -58,6 +58,20 @@ async function segmentWords(text) {
 }
 const WORD_RE = /[\p{L}\p{N}]/u;
 
+// 동사·형용사 뒤에 홀로 오는 得 는 구조조사 de (说得对, 跑得快). 병음 라이브러리가 dé 로 읽는 경우가 많아 보정
+const PRONOUNS = new Set(['我', '你', '他', '她', '它', '我们', '你们', '他们', '她们', '咱们', '您', '谁', '大家']);
+function fixDe(tokens) {
+  for (let i = 1; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.t !== '得' || !t.chars[0]) continue;
+    const prev = tokens[i - 1];
+    const next = tokens[i + 1];
+    if (!prev || !prev.zh || PRONOUNS.has(prev.t)) continue; // 我得走了 → děi 등은 그대로
+    if (next && /^了/.test(next.t)) continue; // 得了 → dé
+    Object.assign(t.chars[0], { py: 'de', tone: 0 });
+  }
+}
+
 async function analyze(text) {
   text = String(text || '').replace(/\s+/g, ' ').trim();
   let truncated = false;
@@ -81,6 +95,7 @@ async function analyze(text) {
       chars: ci,
     });
   }
+  fixDe(tokens);
   return {
     text,
     truncated,
@@ -141,28 +156,61 @@ async function translate(text) {
   return out;
 }
 
-async function lookup(word) {
-  const key = 'L:' + word;
+// 단어 뜻: 직접 만든 한국어 사전 + CC-CEDICT(영어) + Google 번역을 합친다
+// - 한국어 사전에 있으면 그 뜻을 우선 (한 글자를 Google 로 번역하면 对→오른쪽 처럼 틀리는 경우가 많음)
+// - 없으면 Google 번역, 그리고 CC-CEDICT 영어 뜻을 참고로 함께 표시
+async function googleWord(word) {
+  const key = 'G:' + word;
   if (memCache.has(key)) return memCache.get(key);
   const stored = await getSessionCache(key);
   if (stored) {
     cacheSet(key, stored);
     return stored;
   }
-  const data = await gtx(word, { dt: ['t', 'bd', 'md'] });
-  const trans = (data.sentences || []).filter((s) => s.trans != null).map((s) => s.trans).join('');
-  const dict = (data.dict || []).map((d) => ({
-    pos: d.pos || '',
-    terms: (d.entry || []).slice(0, 8).map((e) => e.word).filter(Boolean),
-  })).filter((d) => d.terms.length);
-  // 정의(영어/한국어) - 있는 경우만
-  const defs = [];
-  for (const d of data.definitions || []) {
-    for (const e of (d.entry || []).slice(0, 2)) if (e.gloss) defs.push({ pos: d.pos || '', gloss: e.gloss });
-  }
-  const out = { word, trans, dict, defs: defs.slice(0, 4) };
+  const data = await gtx(word, { dt: ['t'] });
+  const out = { trans: (data.sentences || []).filter((s) => s.trans != null).map((s) => s.trans).join('') };
   cacheSet(key, out);
   setSessionCache(key, out);
+  return out;
+}
+
+async function lookup(word, py = '') {
+  const key = 'L2:' + word + '|' + py;
+  if (memCache.has(key)) return memCache.get(key);
+  const single = Array.from(word).length === 1;
+  const local = typeof globalThis.zhkoDict === 'function' ? await globalThis.zhkoDict(word, py).catch(() => null) : null;
+  const ko = (local && local.ko) || [];
+  const en = (local && local.en) || [];
+  const koMain = ko.some((x) => x.matched) ? ko.filter((x) => x.matched) : ko;
+
+  let trans = '';
+  let machine = false;
+  let gErr = '';
+  const dict = [];
+  if (koMain.length) {
+    trans = koMain[0].senses[0];
+    const showPy = ko.length > 1;
+    ko.forEach((x, i) => {
+      const terms = i === 0 && koMain[0] === x ? x.senses.slice(1) : x.senses;
+      if (!terms.length) return;
+      dict.push({ pos: x.matched ? (showPy ? x.py : '') : '다른 읽기 ' + x.py, terms });
+    });
+  } else {
+    try {
+      trans = (await googleWord(word)).trans;
+      machine = single; // 한 글자 기계 번역은 부정확할 수 있음을 표시
+    } catch (e) {
+      gErr = e.message;
+    }
+  }
+  const defs = en
+    .filter((x) => x.matched || en.length === 1 || !en.some((y) => y.matched))
+    .slice(0, 2)
+    .map((x) => ({ pos: en.length > 1 ? '영어 ' + x.py : '영어', gloss: x.senses.slice(0, 5).join(' / ') }));
+
+  if (!trans && !dict.length && !defs.length) return { word, error: gErr || '뜻을 찾지 못했습니다' };
+  const out = { word, trans, machine, dict, defs };
+  cacheSet(key, out);
   return out;
 }
 
@@ -305,7 +353,7 @@ api.runtime.onMessage.addListener((msg, sender) => {
     case 'translate':
       return translate(msg.text).catch((e) => ({ error: e.message }));
     case 'lookup':
-      return lookup(msg.text).catch((e) => ({ error: e.message }));
+      return lookup(msg.text, msg.py || '').catch((e) => ({ error: e.message }));
     case 'charinfo':
       return Promise.resolve(charInfo(Array.from(msg.text || '')));
     case 'tts':

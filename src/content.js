@@ -156,22 +156,27 @@
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
   const lookupCache = new Map();
-  function lookup(word) {
-    if (!lookupCache.has(word)) {
-      const p = api.runtime.sendMessage({ type: 'lookup', text: word }).then((r) => {
-        if (!r || r.error) lookupCache.delete(word); // 실패 시 다음에 재시도
+  // py: 문맥상의 읽기(병음). 같은 글자라도 읽기에 맞는 뜻을 먼저 보여준다
+  const lkKey = (word, py) => word + '|' + (py || '');
+  function lookup(word, py = '') {
+    const key = lkKey(word, py);
+    if (!lookupCache.has(key)) {
+      const p = api.runtime.sendMessage({ type: 'lookup', text: word, py }).then((r) => {
+        if (!r || r.error) lookupCache.delete(key); // 실패 시 다음에 재시도
         return r || { error: '응답 없음' };
       });
-      lookupCache.set(word, p);
+      lookupCache.set(key, p);
     }
-    return lookupCache.get(word);
+    return lookupCache.get(key);
   }
 
   function shortMeaning(lk, max = 3) {
     if (!lk || lk.error) return '';
     if (lk.dict && lk.dict.length) {
       const terms = [];
-      for (const d of lk.dict) for (const t of d.terms) if (!terms.includes(t)) terms.push(t);
+      // 문맥과 다른 읽기의 뜻은 짧은 뜻에서 뺀다
+      const main = lk.dict.filter((d) => !/^다른 읽기/.test(d.pos || ''));
+      for (const d of main.length || lk.trans ? main : lk.dict) for (const t of d.terms) if (!terms.includes(t)) terms.push(t);
       const tr = lk.trans && lk.trans !== lk.word ? lk.trans : '';
       const list = tr && !terms.slice(0, max).includes(tr) ? [tr, ...terms] : terms;
       return list.slice(0, max).join(', ');
@@ -465,7 +470,7 @@
       <div class="c-meaning"><span class="loading">불러오는 중…</span></div>
       ${zhChars.length > 1 || (zhChars[0] && zhChars[0].poly) ? `<div class="c-sec">글자 풀이</div><div class="c-chars">${zhChars
         .map(
-          (c) => `<div class="c-char" data-c="${esc(c.c)}"><span class="ch zh">${esc(c.c)}</span>
+          (c) => `<div class="c-char" data-c="${esc(c.c)}" data-py="${esc(c.py)}"><span class="ch zh">${esc(c.c)}</span>
             <span class="meta"><span>${esc(pyText(c, s.pinyinStyle))}</span>
             <span class="c-hj">[${esc(c.hj || '?')}]</span>${c.poly ? `<span class="c-hj">다음자: ${esc(c.poly.join(' / '))}</span>` : ''}</span>
             <span class="mean">…</span></div>`
@@ -479,13 +484,13 @@
     wrapEl().appendChild(card);
     positionCard(card, tokEl);
 
-    const lk = await lookup(tok.t);
+    const lk = await lookup(tok.t, tokenPinyin(tok, 'mark'));
     if (!card.isConnected) return;
     card.querySelector('.c-meaning').innerHTML = meaningHtml(lk);
     positionCard(card, tokEl);
     if (zhChars.length > 1 || (zhChars[0] && zhChars[0].poly)) {
       card.querySelectorAll('.c-char').forEach(async (row) => {
-        const clk = await lookup(row.dataset.c);
+        const clk = await lookup(row.dataset.c, row.dataset.py);
         if (row.isConnected) row.querySelector('.mean').textContent = shortMeaning(clk, 4) || '(뜻 정보 없음)';
       });
     }
@@ -493,7 +498,9 @@
 
   function meaningHtml(lk) {
     if (!lk || lk.error) return `<span class="err">${esc((lk && lk.error) || '뜻을 불러오지 못했습니다')}</span>`;
-    let h = lk.trans && lk.trans !== lk.word ? `<div class="c-main">${esc(lk.trans)}</div>` : '';
+    let h = lk.trans && lk.trans !== lk.word
+      ? `<div class="c-main">${esc(lk.trans)}${lk.machine ? ' <span class="c-hj">(기계 번역)</span>' : ''}</div>`
+      : '';
     for (const d of lk.dict || []) h += `<div class="c-pos">${d.pos ? `<b>${esc(d.pos)}</b>` : ''}${esc(d.terms.join(', '))}</div>`;
     for (const d of lk.defs || []) h += `<div class="c-pos" style="color:var(--muted)">${d.pos ? `<b>${esc(d.pos)}</b>` : ''}${esc(d.gloss)}</div>`;
     return h || '<span class="loading">사전 정보가 없습니다</span>';
@@ -544,7 +551,7 @@
       state.saved.delete(word);
       toast(`'${word}' 를 보관함에서 뺐습니다`);
     } else {
-      const lk = await lookup(word);
+      const lk = await lookup(word, tokenPinyin(tok, 'mark'));
       await store.add({
         type: 'word',
         text: word,
@@ -584,7 +591,7 @@
       const words = {};
       for (const t of state.tokens) {
         if (!t.zh || words[t.t]) continue;
-        const c = lookupCache.get(t.t);
+        const c = lookupCache.get(lkKey(t.t, tokenPinyin(t, 'mark')));
         if (c) {
           const lk = await c;
           words[t.t] = shortMeaning(lk, 2);

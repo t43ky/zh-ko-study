@@ -24,6 +24,11 @@ Firefox 확장판과 같은 기능을 **독립 실행 프로그램**으로 만�
 - 바로가기를 만든 뒤에는 프로그램 폴더를 옮기거나 지우지 마세요.
 - 삭제: 설정 → 설치 → 바로가기 삭제 → 트레이에서 종료 → 프로그램 폴더 삭제.
 
+## 사전
+- `data/ko-chars-*.txt`: 자주 쓰는 한자·기능어의 한국어 뜻 (읽기별, 직접 작성). 수정 후 `npm run build-dict`
+- `dict/cedict.tsv`: [CC-CEDICT](https://www.mdbg.net/chinese/dictionary?page=cedict) 기반 영어 뜻 (CC BY-SA 4.0)
+- 단어 뜻은 ① 한국어 사전 → ② 없으면 Google 번역 순서로 보여주고, CC-CEDICT 영어 뜻을 참고로 함께 표시합니다.
+
 ## 데이터
 - 보관함·설정은 `%APPDATA%\ZhKoStudy\data.json`, `config.json`에 저장됩니다.
 - 확장판 보관함에서 "내보내기"한 JSON을 앱의 보관함 → "가져오기"로 옮길 수 있습니다 (반대도 가능).
@@ -48,7 +53,8 @@ macOS에서는 자동 복사에 **손쉬운 사용(접근성)** 권한이 필요
 | `src/quick.*` | 빠른 분석 창 (화면 전체를 덮는 투명 창), 화면 글자 인식 영역 선택 |
 | `src/ocr.js`, `src/ocr/` | 글자 인식 (tesseract.js, 중국어 간체·번체 데이터). `npm run sync-ocr`로 갱신 |
 | `src/app.*`, `src/app-desktop.js` | 메인 창 (분석 · 보관함 · 테스트 · 설정) |
-| `src/content.js`, `src/background.js`, `src/lib/` | 확장판과 같은 분석 엔진·UI |
+| `src/content.js`, `src/background.js`, `src/lib/` | 분석 엔진·UI |
+| `dict.js`, `dict/`, `data/` | 사전 조회 (한국어 뜻 + CC-CEDICT) |
 
 ## 자동 업데이트
 - 앱은 시작할 때와 6시간마다 이 저장소의 **최신 릴리스**(GitHub Releases)를 확인합니다.

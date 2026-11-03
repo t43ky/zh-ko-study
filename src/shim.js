@@ -43,6 +43,8 @@
 
   // jieba 단어 분절 (메인 프로세스)
   window.zhkoSegment = (text) => n.invoke('segment', text);
+  // 사전 조회 (한국어 뜻 + CC-CEDICT, 메인 프로세스)
+  window.zhkoDict = (word, py) => n.invoke('dict', word, py);
 
   window.browser = {
     storage: {

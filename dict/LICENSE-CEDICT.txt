@@ -1,0 +1,6 @@
+cedict.tsv 는 CC-CEDICT 를 바탕으로 만들었습니다.
+CC-CEDICT: https://www.mdbg.net/chinese/dictionary?page=cedict
+라이선스: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
+https://creativecommons.org/licenses/by-sa/4.0/
+
+ko-dict.json 은 data/ko-chars-*.txt (이 프로젝트에서 직접 작성한 한국어 뜻)로 만들었습니다.
