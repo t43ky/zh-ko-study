@@ -1,0 +1,64 @@
+{
+  "name": "zh-ko-study-app",
+  "productName": "ZhKoStudy",
+  "version": "1.3.0",
+  "description": "중한 공부 번역기 - 데스크톱 앱",
+  "main": "main.js",
+  "author": "zh-ko-study",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win zip --x64",
+    "dist:mac": "electron-builder --mac zip",
+    "dist:linux": "electron-builder --linux AppImage"
+  },
+  "build": {
+    "appId": "local.zhko.study",
+    "productName": "ZhKoStudy",
+    "artifactName": "ZhKoStudy-${version}-${os}-${arch}.${ext}",
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "package.json",
+      "updater.js"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": true
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "중한 공부 번역기",
+      "createDesktopShortcut": true
+    },
+    "mac": {
+      "icon": "build/icon.png",
+      "category": "public.app-category.education"
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Education"
+    },
+    "publish": null,
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      }
+    ]
+  },
+  "devDependencies": {
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/t43ky/zh-ko-study.git"
+  }
+}

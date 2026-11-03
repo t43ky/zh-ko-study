@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>중한 공부 번역기</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://translate.googleapis.com; media-src https://translate.google.com; img-src 'self' data: blob:">
+  <link rel="icon" href="icon.svg">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header>
+    <div class="bar">
+      <div class="logo">中→韓 공부 번역기</div>
+      <nav>
+        <a href="#analyze" data-tab="analyze">분석</a>
+        <a href="#vocab" data-tab="vocab">보관함</a>
+        <a href="#quiz" data-tab="quiz">테스트</a>
+        <a href="#settings" data-tab="settings">설정</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <!-- 보관함 -->
+    <section id="tab-vocab" hidden>
+      <div class="toolbar">
+        <div class="seg" id="filter-type">
+          <button data-v="all" class="on">전체</button>
+          <button data-v="word">단어</button>
+          <button data-v="sentence">문장</button>
+        </div>
+        <input type="search" id="search" placeholder="검색 (한자, 병음, 뜻, 메모)">
+        <select id="sort">
+          <option value="new">최근 저장순</option>
+          <option value="old">오래된 순</option>
+          <option value="weak">많이 틀린 순</option>
+        </select>
+      </div>
+      <div class="toolbar">
+        <button id="export">내보내기 (JSON)</button>
+        <button id="import">가져오기</button>
+        <input type="file" id="import-file" accept=".json,application/json" hidden>
+        <span style="flex:1"></span>
+        <button class="primary" data-goto="quiz">이 목록으로 테스트 →</button>
+      </div>
+      <div class="count" id="count"></div>
+      <div id="list"></div>
+    </section>
+
+    <!-- 테스트 -->
+    <section id="tab-quiz" hidden>
+      <div id="quiz-root"></div>
+    </section>
+
+    <!-- 직접 분석 -->
+    <section id="tab-analyze" hidden>
+      <h2>직접 입력해서 분석</h2>
+      <p class="muted small">중국어를 붙여넣고 <b>분석하기</b>(또는 Ctrl+Enter)를 누르세요. 다른 프로그램에서는 글을 드래그하고 <kbd class="sc-key">Ctrl+Alt+Z</kbd> 를 누르면 커서 옆에 바로 분석 창이 뜹니다.</p>
+      <textarea class="src zh" id="src" placeholder="例如：我们今天一起去图书馆学习汉语。"></textarea>
+      <div class="toolbar" style="margin-top:10px">
+        <button class="primary" id="run">분석하기</button>
+        <span class="muted small">Ctrl+Enter</span>
+      </div>
+    </section>
+
+    <!-- 설정 -->
+    <section id="tab-settings" hidden class="settings">
+      <h2>설정</h2>
+      <h3>분석 창 표시</h3>
+      <label class="opt-row"><input type="checkbox" data-k="showPinyin"><span>병음 표시<small>각 단어 아래에 병음을 표시합니다</small></span></label>
+      <label class="opt-row"><span>병음 표기 방식<small>성조 부호(xué) 또는 숫자(xue2)</small></span>
+        <select data-k="pinyinStyle"><option value="mark">xué (부호)</option><option value="num">xue2 (숫자)</option></select></label>
+      <h3>발음</h3>
+      <label class="opt-row"><input type="checkbox" data-k="autoSpeak"><span>분석할 때 자동으로 읽기</span></label>
+      <label class="opt-row"><span>음성 엔진<small>자동: 브라우저에 중국어 음성이 있으면 사용하고, 없으면 Google 음성을 사용</small></span>
+        <select data-k="ttsEngine"><option value="auto">자동</option><option value="browser">브라우저 음성</option><option value="google">Google 음성</option></select></label>
+      <label class="opt-row"><span>음량 <b id="vol-v"></b><small>분석 창 위쪽의 🔉 막대로도 조절할 수 있습니다</small></span>
+        <input type="range" min="0" max="1" step="0.05" data-k="volume"></label>
+      <label class="opt-row"><span>읽기 속도 <b id="rate-v"></b></span>
+        <input type="range" min="0.5" max="1.3" step="0.05" data-k="speechRate"><button id="tts-test">🔊 테스트</button></label>
+      <h3>빠른 분석 (다른 프로그램에서)</h3>
+      <label class="opt-row"><span>전역 단축키<small>예: Ctrl+Alt+Z, Ctrl+Shift+F1, Alt+Q. 다른 프로그램과 겹치지 않는 조합을 쓰세요.</small></span>
+        <input type="text" id="ap-shortcut" style="width:170px" spellcheck="false"><button id="ap-shortcut-save">적용</button></label>
+      <label class="opt-row"><input type="checkbox" id="ap-autocopy"><span>단축키를 누르면 선택한 글을 자동으로 복사<small>끄면 Ctrl+C로 복사해 둔 글을 분석합니다. 자동 복사가 안 되는 프로그램에서는 끄고 쓰세요.</small></span></label>
+      <label class="opt-row"><input type="checkbox" id="ap-watch"><span>클립보드 감시<small>중국어를 복사(Ctrl+C)하기만 해도 바로 분석 창을 띄웁니다</small></span></label>
+      <label class="opt-row" id="ap-login-row"><input type="checkbox" id="ap-login"><span>컴퓨터를 켤 때 자동 실행<small>트레이(작업 표시줄 오른쪽 아래)에 숨은 채로 시작합니다</small></span></label>
+      <div id="shortcuts" hidden></div>
+      <div id="install-sec" hidden>
+      <h3>설치</h3>
+      <p class="small muted" id="inst-status"></p>
+      <div class="toolbar">
+        <button class="primary" id="inst-create">바탕화면·시작 메뉴 바로가기 만들기</button>
+        <button id="inst-remove">바로가기 삭제</button>
+      </div>
+      <p class="small muted">프로그램 폴더: <code id="inst-path"></code><br>
+        바로가기를 만든 뒤에는 이 폴더를 옮기거나 지우지 마세요. 폴더를 옮겼다면 새 위치에서 프로그램을 실행한 뒤 바로가기를 다시 만드세요.<br>
+        완전히 삭제하려면: 바로가기 삭제 → 트레이에서 종료 → 프로그램 폴더 삭제 (보관함 데이터는 <code>%APPDATA%\ZhKoStudy</code>에 남습니다)</p>
+      </div>
+      <h3>업데이트</h3>
+      <p class="small" id="up-status">현재 버전 확인 중…</p>
+      <div class="toolbar">
+        <button id="up-check">업데이트 확인</button>
+        <button class="primary" id="up-install" hidden>지금 업데이트</button>
+      </div>
+      <label class="opt-row"><input type="checkbox" id="ap-autoupdate"><span>자동으로 업데이트 확인<small>프로그램을 켤 때와 6시간마다 새 버전이 있는지 확인하고, 있으면 설치할지 물어봅니다</small></span></label>
+      <h3>데이터</h3>
+      <p class="small muted">저장한 단어·문장은 이 컴퓨터에만 보관됩니다. 보관함 탭의 “내보내기”로 백업할 수 있습니다.
+        번역과 사전 뜻은 Google 번역에서 가져오므로, 분석할 때 선택한 글이 Google로 전송됩니다.</p>
+      <button id="wipe" style="color:var(--bad)">보관함 전체 삭제</button>
+    </section>
+  </main>
+  <script src="shim.js"></script>
+  <script src="lib/pinyin-pro.js"></script>
+  <script src="lib/hanja-data.js"></script>
+  <script src="background.js"></script>
+  <script src="content.js"></script>
+  <script src="app.js"></script>
+  <script src="app-desktop.js"></script>
+</body>
+</html>

@@ -1,0 +1,521 @@
+/* 중한 공부 번역기 - 데스크톱 앱 (Electron 메인 프로세스)
+ * - 전역 단축키: 다른 프로그램에서 선택한 글을 복사해서 커서 옆 빠른 분석 창에 표시
+ * - 클립보드 감시(선택): 중국어를 복사하면 바로 분석
+ * - 트레이 상주, 데이터는 사용자 폴더의 JSON 파일에 저장
+ */
+'use strict';
+
+const {
+  app, BrowserWindow, globalShortcut, clipboard, ipcMain, Tray, Menu, nativeImage, screen, shell, session, Notification, dialog,
+} = require('electron');
+const path = require('path');
+const fs = require('fs');
+const { spawn, execFile } = require('child_process');
+const { createUpdater } = require('./updater');
+
+const ZH_RE = /[㐀-䶿一-鿿豈-﫿]/;
+const isMac = process.platform === 'darwin';
+const isWin = process.platform === 'win32';
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+  process.exit(0);
+}
+
+/* ---------------- 저장소 ---------------- */
+
+const userDir = app.getPath('userData');
+const DATA_FILE = path.join(userDir, 'data.json');
+const CONFIG_FILE = path.join(userDir, 'config.json');
+
+const DEFAULT_CONFIG = {
+  shortcut: isMac ? 'Command+Shift+Z' : 'Ctrl+Alt+Z',
+  autoCopy: true,
+  watchClipboard: false,
+  openAtLogin: false,
+  shownTrayHint: false,
+  askedShortcuts: false,
+  autoUpdate: true,
+};
+
+function readJson(file, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return fallback;
+  }
+}
+function writeJson(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(data));
+  fs.renameSync(tmp, file);
+}
+
+let data = readJson(DATA_FILE, {});
+let config = Object.assign({}, DEFAULT_CONFIG, readJson(CONFIG_FILE, {}));
+const saveConfig = () => writeJson(CONFIG_FILE, config);
+
+/* ---------------- 창 ---------------- */
+
+let mainWin = null;
+let quickWin = null;
+let tray = null;
+let quitting = false;
+
+const iconPath = path.join(__dirname, 'src', 'icon.png');
+
+function webPrefs() {
+  return {
+    preload: path.join(__dirname, 'preload.js'),
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: true,
+  };
+}
+
+function guardNavigation(win) {
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (e, url) => {
+    if (!url.startsWith('file:')) {
+      e.preventDefault();
+      if (/^https?:/i.test(url)) shell.openExternal(url);
+    }
+  });
+}
+
+function openMain(hash = 'analyze') {
+  if (!mainWin || mainWin.isDestroyed()) {
+    mainWin = new BrowserWindow({
+      width: 1040,
+      height: 820,
+      minWidth: 420,
+      minHeight: 400,
+      title: '중한 공부 번역기',
+      icon: iconPath,
+      autoHideMenuBar: true,
+      show: false,
+      webPreferences: webPrefs(),
+    });
+    guardNavigation(mainWin);
+    mainWin.loadFile(path.join(__dirname, 'src', 'app.html'), { hash });
+    mainWin.once('ready-to-show', () => mainWin.show());
+    mainWin.on('close', (e) => {
+      if (quitting) return;
+      e.preventDefault();
+      mainWin.hide();
+      if (!config.shownTrayHint && Notification.isSupported()) {
+        new Notification({
+          title: '중한 공부 번역기',
+          body: `트레이에서 계속 실행 중입니다. 다른 프로그램에서 중국어를 드래그하고 ${config.shortcut} 를 누르세요.`,
+        }).show();
+        config.shownTrayHint = true;
+        saveConfig();
+      }
+    });
+  } else {
+    mainWin.webContents.executeJavaScript(`location.hash = ${JSON.stringify('#' + hash)}`).catch(() => {});
+    if (mainWin.isMinimized()) mainWin.restore();
+    mainWin.show();
+  }
+  mainWin.focus();
+}
+
+
+function createQuick() {
+  quickWin = new BrowserWindow({
+    width: 800,
+    height: 600,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    focusable: true,
+    webPreferences: webPrefs(),
+  });
+  quickWin.setAlwaysOnTop(true, 'floating');
+  guardNavigation(quickWin);
+  quickWin.loadFile(path.join(__dirname, 'src', 'quick.html'));
+  quickWin.on('blur', () => hideQuick());
+}
+
+function hideQuick() {
+  if (quickWin && !quickWin.isDestroyed() && quickWin.isVisible()) {
+    quickWin.webContents.send('quick-close');
+    quickWin.hide();
+  }
+}
+
+// 빠른 분석 창은 화면 전체를 덮는 투명 창. 분석 창 바깥 아무 곳이나 클릭하면 닫힌다.
+function showQuick(text) {
+  if (!quickWin || quickWin.isDestroyed()) createQuick();
+  const pt = screen.getCursorScreenPoint();
+  const wa = screen.getDisplayNearestPoint(pt).workArea;
+  quickWin.setBounds({ x: wa.x, y: wa.y, width: wa.width, height: wa.height });
+  const send = () => {
+    quickWin.webContents.send('quick-show', { text, x: pt.x - wa.x, y: pt.y - wa.y });
+    quickWin.show();
+    quickWin.focus();
+  };
+  if (quickWin.webContents.isLoading()) quickWin.webContents.once('did-finish-load', send);
+  else send();
+}
+const isLinux = () => process.platform === 'linux';
+
+/* ---------------- 선택한 글 복사 ---------------- */
+
+let psProc = null;
+let psWaiters = [];
+
+function windowsCopier() {
+  if (psProc && !psProc.killed && psProc.exitCode == null) return psProc;
+  // 수정 키(Alt/Shift/Ctrl)를 뗄 때까지 기다린 뒤 Ctrl+C 를 보낸다
+  const script = `
+Add-Type -AssemblyName System.Windows.Forms
+while ($true) {
+  $l = [Console]::In.ReadLine()
+  if ($l -eq $null) { break }
+  $t = 0
+  while ([System.Windows.Forms.Control]::ModifierKeys -ne 'None' -and $t -lt 75) { Start-Sleep -Milliseconds 20; $t++ }
+  [System.Windows.Forms.SendKeys]::SendWait('^c')
+  [Console]::Out.WriteLine('ok')
+}`;
+  const encoded = Buffer.from(script, 'utf16le').toString('base64');
+  psProc = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'ignore'],
+  });
+  psProc.stdout.on('data', (d) => {
+    const n = String(d).split('ok').length - 1;
+    for (let i = 0; i < n; i++) (psWaiters.shift() || (() => {}))();
+  });
+  psProc.on('exit', () => {
+    psProc = null;
+    psWaiters.splice(0).forEach((f) => f());
+  });
+  return psProc;
+}
+
+function simulateCopy() {
+  return new Promise((resolve) => {
+    const done = () => resolve();
+    setTimeout(done, 1800); // 안전장치
+    try {
+      if (isWin) {
+        const p = windowsCopier();
+        psWaiters.push(done);
+        p.stdin.write('copy\n');
+      } else if (isMac) {
+        execFile('osascript', ['-e', 'delay 0.15', '-e', 'tell application "System Events" to keystroke "c" using command down'], done);
+      } else {
+        execFile('xdotool', ['key', '--clearmodifiers', 'ctrl+c'], done);
+      }
+    } catch {
+      done();
+    }
+  });
+}
+
+let busy = false;
+let ignoreClipUntil = 0;
+
+async function quickAnalyze() {
+  if (busy) return;
+  busy = true;
+  try {
+    let text = '';
+    if (config.autoCopy) {
+      const before = (await clipboard.readText());
+      const marker = `__zhko_${Date.now()}__`;
+      ignoreClipUntil = Date.now() + 3000;
+      await clipboard.writeText(marker);
+      await simulateCopy();
+      // 복사 결과가 클립보드에 들어올 때까지 잠깐 기다림
+      for (let i = 0; i < 10 && (await clipboard.readText()) === marker; i++) await new Promise((r) => setTimeout(r, 40));
+      const after = (await clipboard.readText());
+      if (after === marker || !after.trim()) {
+        await clipboard.writeText(before); // 복사 실패 → 원래 클립보드 복원 후 그 내용 사용
+        text = before;
+      } else text = after;
+      lastClip = (await clipboard.readText());
+    } else {
+      text = (await clipboard.readText());
+    }
+    text = (text || '').trim();
+    if (!ZH_RE.test(text)) {
+      notify(config.autoCopy
+        ? '선택한 글에서 중국어를 찾지 못했습니다. 글을 드래그한 뒤 다시 시도하거나, Ctrl+C로 복사한 뒤 단축키를 눌러 보세요.'
+        : '클립보드에 중국어가 없습니다. 중국어를 복사(Ctrl+C)한 뒤 단축키를 누르세요.');
+      return;
+    }
+    showQuick(text.slice(0, 1500));
+  } finally {
+    busy = false;
+  }
+}
+
+function notify(body) {
+  if (Notification.isSupported()) new Notification({ title: '중한 공부 번역기', body }).show();
+}
+
+/* ---------------- 클립보드 감시 ---------------- */
+
+let lastClip = '';
+let clipTimer = null;
+function setWatch(on) {
+  clearInterval(clipTimer);
+  clipTimer = null;
+  if (!on) return;
+  Promise.resolve(clipboard.readText()).then((t) => (lastClip = t));
+  clipTimer = setInterval(async () => {
+    const t = (await clipboard.readText());
+    if (t === lastClip) return;
+    lastClip = t;
+    if (Date.now() < ignoreClipUntil) return;
+    if (t && ZH_RE.test(t) && t.length <= 1500 && !t.startsWith('__zhko_')) showQuick(t.trim());
+  }, 500);
+}
+
+/* ---------------- 단축키 / 트레이 ---------------- */
+
+function registerShortcut(acc) {
+  globalShortcut.unregisterAll();
+  try {
+    if (acc && globalShortcut.register(acc, quickAnalyze)) return true;
+  } catch {}
+  return false;
+}
+
+function buildTrayMenu() {
+  if (!tray) return;
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: `빠른 분석  (${config.shortcut})`, click: quickAnalyze },
+      { label: '직접 입력해서 분석', click: () => openMain('analyze') },
+      { label: '보관함', click: () => openMain('vocab') },
+      { label: '테스트', click: () => openMain('quiz') },
+      { type: 'separator' },
+      {
+        label: '클립보드 감시 (중국어 복사 시 바로 분석)',
+        type: 'checkbox',
+        checked: config.watchClipboard,
+        click: (item) => applyConfig({ watchClipboard: item.checked }),
+      },
+      { label: '설정', click: () => openMain('settings') },
+      { label: `업데이트 확인 (현재 ${app.getVersion()})`, click: () => updater.promptIfAvailable({ manual: true }) },
+      { type: 'separator' },
+      { label: '종료', click: () => { quitting = true; app.quit(); } },
+    ])
+  );
+  tray.setToolTip(`중한 공부 번역기 — ${config.shortcut}`);
+}
+
+function applyConfig(patch) {
+  const prev = config.shortcut;
+  config = Object.assign({}, config, patch);
+  let ok = true;
+  if ('shortcut' in patch) {
+    ok = registerShortcut(config.shortcut);
+    if (!ok) {
+      config.shortcut = prev;
+      registerShortcut(prev);
+    }
+  }
+  if ('watchClipboard' in patch) setWatch(config.watchClipboard);
+  if ('autoUpdate' in patch) updater.start();
+  if ('openAtLogin' in patch && !isLinux()) app.setLoginItemSettings({ openAtLogin: !!config.openAtLogin, args: ['--hidden'] });
+  saveConfig();
+  buildTrayMenu();
+  BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('config-changed', config));
+  return { ok, config };
+}
+
+/* ---------------- 설치 (zip 버전용 바로가기) ---------------- */
+
+const APP_NAME = '중한 공부 번역기';
+
+function shortcutPaths() {
+  return {
+    desktop: path.join(app.getPath('desktop'), APP_NAME + '.lnk'),
+    startMenu: path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', APP_NAME + '.lnk'),
+  };
+}
+
+function shortcutStatus() {
+  if (!isWin) return { supported: false };
+  const p = shortcutPaths();
+  return {
+    supported: true,
+    packaged: app.isPackaged,
+    exe: process.execPath,
+    inTemp: isTempLocation(),
+    desktop: fs.existsSync(p.desktop),
+    startMenu: fs.existsSync(p.startMenu),
+  };
+}
+
+// zip 파일을 풀지 않고 안에서 바로 실행한 경우 (임시 폴더에서 실행됨)
+function isTempLocation() {
+  const exe = process.execPath.toLowerCase();
+  const tmp = app.getPath('temp').toLowerCase();
+  return exe.startsWith(tmp) || /\\temp\\|\\temporary internet files\\/.test(exe);
+}
+
+function createShortcuts() {
+  if (!isWin) return shortcutStatus();
+  if (isTempLocation()) return Object.assign(shortcutStatus(), { error: 'temp' });
+  const ico = path.join(process.resourcesPath, 'icon.ico');
+  const opts = {
+    target: process.execPath,
+    cwd: path.dirname(process.execPath),
+    description: '중국어 문장을 단어별로 분석하는 공부용 번역기',
+    icon: fs.existsSync(ico) ? ico : process.execPath,
+    iconIndex: 0,
+    appUserModelId: 'local.zhko.study',
+  };
+  const p = shortcutPaths();
+  let ok = true;
+  for (const file of [p.desktop, p.startMenu]) {
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      ok = shell.writeShortcutLink(file, fs.existsSync(file) ? 'replace' : 'create', opts) && ok;
+    } catch {
+      ok = false;
+    }
+  }
+  // 자동 실행이 켜져 있으면 새 위치로 다시 등록
+  if (config.openAtLogin) app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] });
+  return Object.assign(shortcutStatus(), ok ? {} : { error: 'write' });
+}
+
+function removeShortcuts() {
+  if (!isWin) return shortcutStatus();
+  for (const file of Object.values(shortcutPaths())) {
+    try {
+      fs.unlinkSync(file);
+    } catch {}
+  }
+  return shortcutStatus();
+}
+
+async function firstRunInstall() {
+  if (!isWin || !app.isPackaged || config.askedShortcuts) return;
+  const st = shortcutStatus();
+  if (st.desktop || st.startMenu) return;
+  if (st.inTemp) {
+    await dialog.showMessageBox({
+      type: 'warning',
+      title: APP_NAME,
+      message: 'zip 파일 안에서 바로 실행 중입니다.',
+      detail: 'zip 파일을 먼저 압축 해제한 뒤(예: C:\\ZhKoStudy 폴더), 그 안의 ZhKoStudy.exe 를 실행해 주세요.\n지금 상태로는 프로그램을 닫으면 파일이 사라져 바로가기를 만들 수 없습니다.',
+      buttons: ['확인'],
+    });
+    return;
+  }
+  const r = await dialog.showMessageBox({
+    type: 'question',
+    title: APP_NAME,
+    message: '바탕화면과 시작 메뉴에 바로가기를 만들까요?',
+    detail: `프로그램 위치: ${path.dirname(process.execPath)}\n\n바로가기를 만든 뒤에는 이 폴더를 옮기거나 지우지 마세요. 나중에 설정 → 설치에서 다시 만들거나 지울 수 있습니다.`,
+    buttons: ['만들기', '나중에'],
+    defaultId: 0,
+    cancelId: 1,
+    checkboxLabel: '컴퓨터를 켤 때 자동 실행',
+    checkboxChecked: false,
+  });
+  config.askedShortcuts = true;
+  saveConfig();
+  if (r.response === 0) {
+    const res = createShortcuts();
+    if (r.checkboxChecked) applyConfig({ openAtLogin: true });
+    if (res.error) dialog.showErrorBox(APP_NAME, '바로가기를 만들지 못했습니다. 설정 → 설치에서 다시 시도해 주세요.');
+    else notify('바탕화면과 시작 메뉴에 바로가기를 만들었습니다.');
+  }
+}
+
+/* ---------------- 자동 업데이트 ---------------- */
+
+const updater = createUpdater({
+  getConfig: () => config,
+  notify: (m) => notify(m),
+  beforeQuit: () => (quitting = true),
+  isTempLocation: () => isTempLocation(),
+  broadcast: (ch, p) => broadcast(ch, p),
+});
+
+/* ---------------- IPC ---------------- */
+
+function broadcast(channel, payload) {
+  BrowserWindow.getAllWindows().forEach((w) => !w.isDestroyed() && w.webContents.send(channel, payload));
+}
+
+ipcMain.handle('store-get', () => data);
+ipcMain.handle('store-set', (_e, obj) => {
+  const changes = {};
+  for (const [k, v] of Object.entries(obj || {})) {
+    changes[k] = { oldValue: data[k], newValue: v };
+    data[k] = v;
+  }
+  writeJson(DATA_FILE, data);
+  broadcast('store-changed', changes);
+  return true;
+});
+ipcMain.handle('open-main', (_e, hash) => openMain(hash || 'analyze'));
+ipcMain.handle('config-get', () => ({ config, platform: process.platform, loginSupported: !isLinux() }));
+ipcMain.handle('config-set', (_e, patch) => applyConfig(patch || {}));
+ipcMain.handle('quick-hide', () => hideQuick());
+ipcMain.handle('shortcuts-get', () => shortcutStatus());
+ipcMain.handle('update-status', () => updater.status());
+ipcMain.handle('update-check', () => updater.check());
+ipcMain.handle('update-install', () => updater.install().catch((e) => ({ error: e.message })));
+ipcMain.handle('shortcuts-set', (_e, on) => (on ? createShortcuts() : removeShortcuts()));
+
+/* ---------------- 시작 ---------------- */
+
+app.on('second-instance', () => openMain());
+app.on('before-quit', () => (quitting = true));
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+  if (psProc) psProc.kill();
+});
+app.on('window-all-closed', (e) => e.preventDefault?.());
+
+global.__zhkoQuick = () => quickAnalyze(); // 테스트·디버그용
+
+app.whenReady().then(() => {
+  if (isWin) app.setAppUserModelId('local.zhko.study');
+  // 번역 서버 응답에 CORS 허용 헤더 추가 (앱 화면은 file:// 에서 열리므로)
+  session.defaultSession.webRequest.onHeadersReceived(
+    { urls: ['https://translate.googleapis.com/*', 'https://translate.google.com/*'] },
+    (details, cb) => {
+      const h = {};
+      for (const [k, v] of Object.entries(details.responseHeaders || {})) if (!/^access-control-allow-/i.test(k)) h[k] = v;
+      h['Access-Control-Allow-Origin'] = ['*'];
+      cb({ responseHeaders: h });
+    }
+  );
+
+  tray = new Tray(nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 }));
+  tray.on('click', () => openMain());
+  buildTrayMenu();
+
+  if (!registerShortcut(config.shortcut)) {
+    notify(`단축키 ${config.shortcut} 를 등록하지 못했습니다. 다른 프로그램이 사용 중일 수 있습니다. 설정에서 바꿔 주세요.`);
+  }
+  setWatch(config.watchClipboard);
+  createQuick();
+  if (isWin) windowsCopier(); // 미리 띄워 두면 첫 단축키가 빨라짐
+
+  const hidden = process.argv.includes('--hidden');
+  if (!hidden) openMain('analyze');
+  setTimeout(firstRunInstall, 800);
+  if (process.argv.includes('--updated')) notify(`버전 ${app.getVersion()}(으)로 업데이트했습니다.`);
+  updater.start();
+  app.on('activate', () => openMain());
+});
