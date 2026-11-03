@@ -53,9 +53,7 @@ macOS에서는 자동 복사에 **손쉬운 사용(접근성)** 권한이 필요
 - 설정 → 업데이트에서 직접 확인하거나 자동 확인을 끌 수 있습니다.
 
 ### 새 버전 배포 (개발자용)
-1. `package.json`의 `version`을 올립니다 (예: 1.3.1).
-2. `npm run dist:win` → `dist/ZhKoStudy-1.3.1-win-x64.zip` 생성.
-3. 태그 `v1.3.1`로 GitHub 릴리스를 만들고 zip 파일을 첨부합니다.
-   ```bash
-   gh release create v1.3.1 dist/ZhKoStudy-1.3.1-win-x64.zip --title "1.3.1" --notes "변경 내용"
-   ```
+1. `package.json`의 `version`을 올리고(예: 1.3.1), `release-notes.md`에 변경 내용을 적습니다.
+2. `main` 브랜치에 push 합니다.
+3. GitHub Actions(`.github/workflows/release.yml`)가 Windows에서 빌드해 `v1.3.1` 릴리스를 만들고 zip을 첨부합니다.
+   사용자 앱은 다음 확인 때 자동으로 업데이트를 안내합니다.
