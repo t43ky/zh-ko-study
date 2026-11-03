@@ -11,11 +11,17 @@ const {
 const path = require('path');
 const fs = require('fs');
 const { spawn, execFile } = require('child_process');
-const { createUpdater } = require('./updater');
+const { createUpdater, runApplyHelper, afterUpdateStartup } = require('./updater');
 
 const ZH_RE = /[㐀-䶿一-鿿豈-﫿]/;
 const isMac = process.platform === 'darwin';
 const isWin = process.platform === 'win32';
+
+// 업데이트 적용 모드: 압축 해제된 새 버전이 기존 프로그램 폴더를 덮어쓰고 다시 실행한 뒤 종료
+if (process.argv.includes('--apply-update')) {
+  runApplyHelper(process.argv);
+  return;
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -576,7 +582,7 @@ app.whenReady().then(() => {
   const hidden = process.argv.includes('--hidden');
   if (!hidden) openMain('analyze');
   setTimeout(firstRunInstall, 800);
-  if (process.argv.includes('--updated')) notify(`버전 ${app.getVersion()}(으)로 업데이트했습니다.`);
+  afterUpdateStartup({ notify });
   updater.start();
   app.on('activate', () => openMain());
 });

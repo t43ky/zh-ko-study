@@ -99,14 +99,15 @@
     let msg = `현재 버전 <b>${esc(st.current)}</b>`;
     if (st.state === 'checking') msg += ' · 확인 중…';
     else if (st.state === 'downloading') msg += ` · 새 버전 ${esc(st.latest)} 내려받는 중… ${st.progress}%`;
+    else if (st.state === 'extracting') msg += ` · 압축 푸는 중… ${st.progress}%`;
     else if (st.state === 'ready') msg += ' · 설치를 위해 다시 시작합니다…';
     else if (st.state === 'error') msg += ` · <span style="color:var(--bad)">확인 실패: ${esc(st.error)}</span>`;
     else if (st.hasUpdate) msg += ` · <b style="color:var(--accent)">새 버전 ${esc(st.latest)} 있음</b>`;
     else if (st.latest) msg += ' · 최신 버전입니다';
     $('#up-status').innerHTML = msg;
-    $('#up-install').hidden = !(st.hasUpdate && st.state !== 'downloading' && st.state !== 'ready');
+    $('#up-install').hidden = !(st.hasUpdate && !['downloading', 'extracting', 'ready'].includes(st.state));
     $('#up-install').textContent = st.canSelfUpdate ? `${st.latest} (으)로 업데이트` : '다운로드 페이지 열기';
-    $('#up-check').disabled = st.state === 'checking' || st.state === 'downloading';
+    $('#up-check').disabled = ['checking', 'downloading', 'extracting'].includes(st.state);
   }
   n.on('update-status', show);
   $('#up-check').addEventListener('click', async () => show(await n.invoke('update-check')));
