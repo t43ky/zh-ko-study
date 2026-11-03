@@ -1,7 +1,7 @@
 {
   "name": "zh-ko-study-app",
   "productName": "ZhKoStudy",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "중한 공부 번역기 - 데스크톱 앱",
   "main": "main.js",
   "author": "zh-ko-study",
@@ -66,6 +66,7 @@
     "url": "https://github.com/t43ky/zh-ko-study.git"
   },
   "dependencies": {
+    "jieba-wasm": "^2.4.0",
     "yauzl": "^3.4.0"
   }
 }

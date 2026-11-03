@@ -41,6 +41,9 @@
     return i >= 0 ? String(url).slice(i + 1) : 'analyze';
   }
 
+  // jieba 단어 분절 (메인 프로세스)
+  window.zhkoSegment = (text) => n.invoke('segment', text);
+
   window.browser = {
     storage: {
       local: {

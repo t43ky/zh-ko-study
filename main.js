@@ -176,6 +176,41 @@ function showQuick(text) {
 }
 const isLinux = () => process.platform === 'linux';
 
+/* ---------------- 단어 나누기 (jieba) ---------------- */
+
+let jieba = null;
+function getJieba() {
+  if (!jieba) jieba = require('jieba-wasm');
+  return jieba;
+}
+
+// 5글자 이상 긴 복합어(예: 中华人民共和国国务院)는 공부하기 좋게 4글자 이하 단어로 다시 나눈다
+function splitLong(word) {
+  const j = getJieba();
+  const cands = new Set(j.cut_for_search(word, true).filter((x) => {
+    const n = Array.from(x).length;
+    return n >= 2 && n <= 4;
+  }));
+  const chars = Array.from(word);
+  const out = [];
+  for (let i = 0; i < chars.length; ) {
+    let len = Math.min(4, chars.length - i);
+    for (; len > 1; len--) if (cands.has(chars.slice(i, i + len).join(''))) break;
+    out.push(chars.slice(i, i + len).join(''));
+    i += len;
+  }
+  return out;
+}
+
+function segmentText(text) {
+  const out = [];
+  for (const w of getJieba().cut(text, true)) {
+    if (Array.from(w).length >= 5 && ZH_RE.test(w)) out.push(...splitLong(w));
+    else out.push(w);
+  }
+  return out;
+}
+
 /* ---------------- 화면 글자 인식(OCR) ---------------- */
 
 let capturing = false;
@@ -534,6 +569,7 @@ ipcMain.handle('open-main', (_e, hash) => openMain(hash || 'analyze'));
 ipcMain.handle('config-get', () => ({ config, platform: process.platform, loginSupported: !isLinux() }));
 ipcMain.handle('config-set', (_e, patch) => applyConfig(patch || {}));
 ipcMain.handle('quick-hide', () => hideQuick());
+ipcMain.handle('segment', (_e, text) => segmentText(String(text || '')));
 ipcMain.handle('start-capture', () => startCapture({ fromMain: true }));
 ipcMain.handle('shortcuts-get', () => shortcutStatus());
 ipcMain.handle('update-status', () => updater.status());
@@ -584,5 +620,6 @@ app.whenReady().then(() => {
   setTimeout(firstRunInstall, 800);
   afterUpdateStartup({ notify });
   updater.start();
+  setTimeout(() => { try { segmentText('预热'); } catch {} }, 1500); // 사전 미리 불러오기
   app.on('activate', () => openMain());
 });

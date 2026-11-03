@@ -44,7 +44,21 @@ function charInfo(chars) {
   });
 }
 
-function analyze(text) {
+// 단어 나누기: 앱에서는 jieba(메인 프로세스)를 쓰고, 실패하면 브라우저 내장 분절기로 대체
+async function segmentWords(text) {
+  if (typeof globalThis.zhkoSegment === 'function') {
+    try {
+      const segs = await globalThis.zhkoSegment(text);
+      if (Array.isArray(segs) && segs.join('') === text) return segs;
+    } catch (e) {
+      console.warn('[zhko] jieba 분절 실패, 내장 분절기 사용:', e);
+    }
+  }
+  return [...segmenter.segment(text)].map((s) => s.segment);
+}
+const WORD_RE = /[\p{L}\p{N}]/u;
+
+async function analyze(text) {
   text = String(text || '').replace(/\s+/g, ' ').trim();
   let truncated = false;
   if (text.length > MAX_CHARS) {
@@ -55,14 +69,14 @@ function analyze(text) {
   const info = charInfo(chars);
   const tokens = [];
   let cp = 0; // 코드포인트 인덱스
-  for (const seg of segmenter.segment(text)) {
-    const segChars = Array.from(seg.segment);
+  for (const seg of await segmentWords(text)) {
+    const segChars = Array.from(seg);
     const ci = info.slice(cp, cp + segChars.length);
     cp += segChars.length;
     const isZh = ci.some((x) => x.zh);
     tokens.push({
-      t: seg.segment,
-      word: !!seg.isWordLike,
+      t: seg,
+      word: WORD_RE.test(seg),
       zh: isZh,
       chars: ci,
     });
