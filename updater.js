@@ -119,8 +119,12 @@ Start-Sleep -Milliseconds 800
 $stage = Join-Path (Split-Path $Zip) 'staging'
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 try {
-  Expand-Archive -Path $Zip -DestinationPath $stage -Force
-} catch { L ("expand failed: " + $_); Start-Process $Exe; exit 1 }
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [System.IO.Compression.ZipFile]::ExtractToDirectory($Zip, $stage)
+} catch {
+  L ("fast extract failed: " + $_)
+  try { Expand-Archive -Path $Zip -DestinationPath $stage -Force } catch { L ("expand failed: " + $_); Start-Process $Exe; exit 1 }
+}
 if (-not (Test-Path (Join-Path $stage 'ZhKoStudy.exe'))) { L "bad archive"; Start-Process $Exe; exit 1 }
 $ok = $false
 for ($i = 0; $i -lt 20 -and -not $ok; $i++) {
