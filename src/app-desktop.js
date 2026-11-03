@@ -6,6 +6,9 @@
 
   function fill({ config, loginSupported }) {
     $('#ap-shortcut').value = config.shortcut;
+    $('#ap-ocr-shortcut').value = config.ocrShortcut || '';
+    $('#ap-ocr-lang').value = config.ocrLang || 'chi_sim';
+    document.querySelectorAll('.ocr-key').forEach((el) => (el.textContent = config.ocrShortcut));
     $('#ap-autocopy').checked = !!config.autoCopy;
     $('#ap-watch').checked = !!config.watchClipboard;
     $('#ap-login').checked = !!config.openAtLogin;
@@ -16,7 +19,7 @@
   n.on('config-changed', (config) => fill({ config }));
 
   // 키를 눌러서 단축키 입력
-  $('#ap-shortcut').addEventListener('keydown', (e) => {
+  const onKey = (e) => {
     if (e.key === 'Tab') return;
     e.preventDefault();
     if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
@@ -31,15 +34,21 @@
     if (k === ' ') k = 'Space';
     parts.push(k);
     e.target.value = parts.join('+');
-  });
+  };
+  $('#ap-shortcut').addEventListener('keydown', onKey);
+  $('#ap-ocr-shortcut').addEventListener('keydown', onKey);
 
-  $('#ap-shortcut-save').addEventListener('click', async () => {
-    const v = $('#ap-shortcut').value.trim();
-    const r = await n.invoke('config-set', { shortcut: v });
-    if (r.ok) alert(`단축키를 ${r.config.shortcut} 로 바꿨습니다.`);
-    else alert(`'${v}' 단축키를 등록할 수 없습니다. 다른 프로그램이 쓰고 있거나 지원하지 않는 조합입니다.`);
-    fill(r);
-  });
+  document.querySelectorAll('.sc-save').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      const v = $('#' + btn.dataset.for).value.trim();
+      const r = await n.invoke('config-set', { [btn.dataset.key]: v });
+      if (r.ok) alert(`단축키를 ${r.config[btn.dataset.key]} 로 바꿨습니다.`);
+      else alert(`'${v}' 단축키를 등록할 수 없습니다. 다른 단축키와 같거나, 다른 프로그램이 쓰고 있거나, 지원하지 않는 조합입니다.`);
+      fill(r);
+    })
+  );
+  $('#ap-ocr-lang').addEventListener('change', (e) => n.invoke('config-set', { ocrLang: e.target.value }));
+  $('#ocr-start').addEventListener('click', () => n.invoke('start-capture'));
   $('#ap-autocopy').addEventListener('change', (e) => n.invoke('config-set', { autoCopy: e.target.checked }));
   $('#ap-watch').addEventListener('change', (e) => n.invoke('config-set', { watchClipboard: e.target.checked }));
   $('#ap-login').addEventListener('change', (e) => n.invoke('config-set', { openAtLogin: e.target.checked }));

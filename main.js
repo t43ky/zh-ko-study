@@ -6,7 +6,7 @@
 'use strict';
 
 const {
-  app, BrowserWindow, globalShortcut, clipboard, ipcMain, Tray, Menu, nativeImage, screen, shell, session, Notification, dialog,
+  app, BrowserWindow, globalShortcut, clipboard, ipcMain, Tray, Menu, nativeImage, screen, shell, session, Notification, dialog, desktopCapturer,
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -36,6 +36,8 @@ const DEFAULT_CONFIG = {
   shownTrayHint: false,
   askedShortcuts: false,
   autoUpdate: true,
+  ocrShortcut: isMac ? 'Command+Shift+X' : 'Ctrl+Alt+X',
+  ocrLang: 'chi_sim', // chi_sim(간체) | chi_tra(번체)
 };
 
 function readJson(file, fallback) {
@@ -168,6 +170,49 @@ function showQuick(text) {
 }
 const isLinux = () => process.platform === 'linux';
 
+/* ---------------- 화면 글자 인식(OCR) ---------------- */
+
+let capturing = false;
+
+async function startCapture({ fromMain = false } = {}) {
+  if (capturing) return;
+  capturing = true;
+  try {
+    hideQuick();
+    if (fromMain && mainWin && !mainWin.isDestroyed() && mainWin.isVisible()) mainWin.minimize();
+    await new Promise((r) => setTimeout(r, fromMain ? 350 : 120)); // 창이 사라질 때까지 대기
+    const pt = screen.getCursorScreenPoint();
+    const display = screen.getDisplayNearestPoint(pt);
+    const sf = display.scaleFactor || 1;
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: Math.round(display.size.width * sf), height: Math.round(display.size.height * sf) },
+    });
+    const src = sources.find((x) => String(x.display_id) === String(display.id)) || sources[0];
+    if (!src || src.thumbnail.isEmpty()) {
+      notify(isMac
+        ? '화면을 캡처하지 못했습니다. 시스템 설정 → 개인정보 보호 및 보안 → 화면 기록에서 이 앱을 허용해 주세요.'
+        : '화면을 캡처하지 못했습니다.');
+      return;
+    }
+    if (!quickWin || quickWin.isDestroyed()) createQuick();
+    const b = display.bounds;
+    quickWin.setBounds({ x: b.x, y: b.y, width: b.width, height: b.height });
+    const payload = { img: src.thumbnail.toDataURL(), lang: config.ocrLang, cursor: { x: pt.x - b.x, y: pt.y - b.y } };
+    const send = () => {
+      quickWin.webContents.send('capture-show', payload);
+      quickWin.show();
+      quickWin.focus();
+    };
+    if (quickWin.webContents.isLoading()) quickWin.webContents.once('did-finish-load', send);
+    else send();
+  } catch (e) {
+    notify('화면 캡처 중 오류가 발생했습니다: ' + (e && e.message));
+  } finally {
+    capturing = false;
+  }
+}
+
 /* ---------------- 선택한 글 복사 ---------------- */
 
 let psProc = null;
@@ -284,12 +329,23 @@ function setWatch(on) {
 
 /* ---------------- 단축키 / 트레이 ---------------- */
 
-function registerShortcut(acc) {
+// 전역 단축키 등록. 실패한 항목 이름 목록을 돌려준다
+function registerShortcuts() {
   globalShortcut.unregisterAll();
-  try {
-    if (acc && globalShortcut.register(acc, quickAnalyze)) return true;
-  } catch {}
-  return false;
+  const failed = [];
+  const reg = (key, fn) => {
+    const acc = config[key];
+    if (!acc) return;
+    try {
+      if (!globalShortcut.register(acc, fn)) failed.push(key);
+    } catch {
+      failed.push(key);
+    }
+  };
+  reg('shortcut', quickAnalyze);
+  if (config.ocrShortcut !== config.shortcut) reg('ocrShortcut', () => startCapture());
+  else failed.push('ocrShortcut');
+  return failed;
 }
 
 function buildTrayMenu() {
@@ -297,6 +353,7 @@ function buildTrayMenu() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: `빠른 분석  (${config.shortcut})`, click: quickAnalyze },
+      { label: `화면에서 글자 인식  (${config.ocrShortcut})`, click: () => startCapture() },
       { label: '직접 입력해서 분석', click: () => openMain('analyze') },
       { label: '보관함', click: () => openMain('vocab') },
       { label: '테스트', click: () => openMain('quiz') },
@@ -317,14 +374,15 @@ function buildTrayMenu() {
 }
 
 function applyConfig(patch) {
-  const prev = config.shortcut;
+  const prev = { shortcut: config.shortcut, ocrShortcut: config.ocrShortcut };
   config = Object.assign({}, config, patch);
   let ok = true;
-  if ('shortcut' in patch) {
-    ok = registerShortcut(config.shortcut);
-    if (!ok) {
-      config.shortcut = prev;
-      registerShortcut(prev);
+  if ('shortcut' in patch || 'ocrShortcut' in patch) {
+    const failed = registerShortcuts().filter((k) => k in patch);
+    if (failed.length) {
+      ok = false;
+      for (const k of failed) config[k] = prev[k];
+      registerShortcuts();
     }
   }
   if ('watchClipboard' in patch) setWatch(config.watchClipboard);
@@ -470,6 +528,7 @@ ipcMain.handle('open-main', (_e, hash) => openMain(hash || 'analyze'));
 ipcMain.handle('config-get', () => ({ config, platform: process.platform, loginSupported: !isLinux() }));
 ipcMain.handle('config-set', (_e, patch) => applyConfig(patch || {}));
 ipcMain.handle('quick-hide', () => hideQuick());
+ipcMain.handle('start-capture', () => startCapture({ fromMain: true }));
 ipcMain.handle('shortcuts-get', () => shortcutStatus());
 ipcMain.handle('update-status', () => updater.status());
 ipcMain.handle('update-check', () => updater.check());
@@ -487,6 +546,7 @@ app.on('will-quit', () => {
 app.on('window-all-closed', (e) => e.preventDefault?.());
 
 global.__zhkoQuick = () => quickAnalyze(); // 테스트·디버그용
+global.__zhkoCapture = () => startCapture(); // 테스트·디버그용
 
 app.whenReady().then(() => {
   if (isWin) app.setAppUserModelId('local.zhko.study');
@@ -505,8 +565,9 @@ app.whenReady().then(() => {
   tray.on('click', () => openMain());
   buildTrayMenu();
 
-  if (!registerShortcut(config.shortcut)) {
-    notify(`단축키 ${config.shortcut} 를 등록하지 못했습니다. 다른 프로그램이 사용 중일 수 있습니다. 설정에서 바꿔 주세요.`);
+  const failedKeys = registerShortcuts();
+  if (failedKeys.length) {
+    notify(`단축키 ${failedKeys.map((k) => config[k]).join(', ')} 를 등록하지 못했습니다. 다른 프로그램이 사용 중일 수 있습니다. 설정에서 바꿔 주세요.`);
   }
   setWatch(config.watchClipboard);
   createQuick();

@@ -1,7 +1,7 @@
 {
   "name": "zh-ko-study-app",
   "productName": "ZhKoStudy",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "중한 공부 번역기 - 데스크톱 앱",
   "main": "main.js",
   "author": "zh-ko-study",
@@ -10,7 +10,8 @@
     "start": "electron .",
     "dist:win": "electron-builder --win zip --x64",
     "dist:mac": "electron-builder --mac zip",
-    "dist:linux": "electron-builder --linux AppImage"
+    "dist:linux": "electron-builder --linux AppImage",
+    "sync-ocr": "node scripts/sync-ocr.js"
   },
   "build": {
     "appId": "local.zhko.study",
@@ -54,8 +55,11 @@
     ]
   },
   "devDependencies": {
+    "@tesseract.js-data/chi_sim": "^1.0.0",
+    "@tesseract.js-data/chi_tra": "^1.0.0",
     "electron": "^45.2.1",
-    "electron-builder": "^26.18.0"
+    "electron-builder": "^26.18.0",
+    "tesseract.js": "^5.1.1"
   },
   "repository": {
     "type": "git",
