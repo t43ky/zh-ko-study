@@ -223,7 +223,6 @@ const TYPES = {
   'w-listen': { kind: 'word', label: '듣고 고르기', desc: '발음을 듣고 알맞은 단어 고르기' },
   's-order': { kind: 'sentence', label: '문장 배열', desc: '번역을 보고 단어를 순서대로 배열' },
   's-blank': { kind: 'sentence', label: '빈칸 채우기', desc: '문장에서 빠진 단어 고르기' },
-  's-self': { kind: 'sentence', label: '문장 해석', desc: '스스로 해석해 보고 정답과 비교해 채점' },
 };
 
 const quiz = { active: false, qs: [], i: 0, opts: null };
@@ -233,7 +232,8 @@ async function renderSetup() {
   quiz.active = false;
   const items = await store.items();
   const saved = (await api.storage.local.get('quizPrefs')).quizPrefs || {};
-  const prefs = Object.assign({ scope: 'all', types: Object.keys(TYPES).filter((t) => t !== 's-self'), count: 10, hint: false }, saved);
+  const prefs = Object.assign({ scope: 'all', types: Object.keys(TYPES), count: 10, hint: false }, saved);
+  prefs.types = (prefs.types || []).filter((t) => t in TYPES); // 없어진 문제 유형 정리
   if (vocabState.type !== 'all' && location.hash === '#quiz') prefs.scope = vocabState.type;
   const nW = items.filter((x) => x.type === 'word').length;
   const nS = items.length - nW;
@@ -334,8 +334,6 @@ function applicable(it, type, all) {
       return (it.tokens || []).filter((x) => x.t.trim()).length >= 3 && !!it.translation;
     case 's-blank':
       return zhTokens(it).length >= 2;
-    case 's-self':
-      return !!it.translation;
   }
   return false;
 }
@@ -462,14 +460,6 @@ function showQuestion() {
         <div class="order-area zh" id="ord-area"></div>
         <div class="order-bank zh" id="ord-bank"></div>
         <div class="next"><button data-q="ord-reset">초기화</button><button class="primary" data-q="ord-check">확인</button></div>`;
-      break;
-    case 's-self':
-      body = `<div class="prompt"><div class="sent zh">${esc(it.text)}</div>
-        <div class="sub"><button class="ghost" data-q="speak">🔊 듣기</button> <button class="ghost" data-q="show-py">병음 보기</button></div>
-        <div class="sub" id="self-py" hidden>${esc(it.pinyin || '')}</div></div>
-        <p class="small muted" style="text-align:center">머릿속으로(또는 종이에) 해석해 본 뒤 정답을 확인하세요.</p>
-        <div class="next" style="justify-content:center"><button class="primary" data-q="reveal">정답 보기</button></div>
-        <div id="self-ans"></div>`;
       break;
   }
   quizRoot().innerHTML = `<div class="card">
@@ -604,9 +594,6 @@ document.addEventListener('click', async (e) => {
   switch (b.dataset.q) {
     case 'speak':
       return speak(q.it.text);
-    case 'show-py':
-      $('#self-py').hidden = false;
-      return;
     case 'check-py': {
       if (q.done) return;
       const v = $('#py-in').value;
@@ -625,16 +612,6 @@ document.addEventListener('click', async (e) => {
       $$('#ord-area .chip, #ord-bank .chip').forEach((c) => (c.disabled = true));
       return answer(mine === q.answer, mine === q.answer ? '' : `<div class="small" style="margin-bottom:6px">내 답: <span class="zh">${esc(mine + q.tail)}</span></div>`);
     }
-    case 'reveal':
-      b.parentElement.remove();
-      $('#self-ans').innerHTML = `<div class="feedback" style="background:var(--soft)">${wordInfoHtml(q.it)}
-        <div class="tokline" style="margin-top:8px">${zhTokens(q.it).map((t) => `<span title="${esc(t.m)}"><b class="zh">${esc(t.t)}</b>${esc(t.py)}${t.m ? `<i style="font-style:normal">${esc(t.m)}</i>` : ''}</span>`).join('')}</div></div>
-        <div class="next" style="justify-content:center"><button data-q="self-no">❌ 틀렸어요</button><button class="primary" data-q="self-ok">⭕ 맞았어요</button></div>`;
-      return;
-    case 'self-ok':
-    case 'self-no':
-      $('#self-ans').innerHTML = '';
-      return answer(b.dataset.q === 'self-ok');
     case 'next':
       quiz.i++;
       if (quiz.i < quiz.qs.length) showQuestion();
