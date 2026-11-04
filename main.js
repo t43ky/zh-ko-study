@@ -157,16 +157,27 @@ function createQuick() {
   quickWin.on('blur', () => hideQuick());
 }
 
+// 맥: 빠른 분석 창을 띄우기 전에 이 앱이 맨 앞(활성)이었는지 기억해 둔다.
+// 다른 앱을 쓰다가 띄웠다면, 닫을 때 앱을 숨겨서 원래 쓰던 앱으로 돌아가게 한다.
+// (그냥 창만 숨기면 macOS 가 이 앱의 다음 창인 메인 창을 앞으로 꺼낸다)
+let quickPrevActive = true;
+function rememberActive() {
+  const f = BrowserWindow.getFocusedWindow();
+  quickPrevActive = !!f && f !== quickWin;
+}
+
 function hideQuick() {
   if (quickWin && !quickWin.isDestroyed() && quickWin.isVisible()) {
     quickWin.webContents.send('quick-close');
     quickWin.hide();
+    if (isMac && !quickPrevActive) app.hide();
   }
 }
 
 // 빠른 분석 창은 화면 전체를 덮는 투명 창. 분석 창 바깥 아무 곳이나 클릭하면 닫힌다.
 function showQuick(text) {
   if (!quickWin || quickWin.isDestroyed()) createQuick();
+  if (!quickWin.isVisible()) rememberActive();
   const pt = screen.getCursorScreenPoint();
   const wa = screen.getDisplayNearestPoint(pt).workArea;
   quickWin.setBounds({ x: wa.x, y: wa.y, width: wa.width, height: wa.height });
@@ -331,7 +342,11 @@ async function startCapture({ fromMain = false } = {}) {
   if (capturing) return;
   capturing = true;
   try {
-    hideQuick();
+    if (!quickWin || quickWin.isDestroyed() || !quickWin.isVisible()) rememberActive();
+    else if (quickWin.isVisible()) {
+      quickWin.webContents.send('quick-close');
+      quickWin.hide(); // 다시 캡처할 때는 앱을 숨기지 않고 창만 닫는다
+    }
     if (fromMain && mainWin && !mainWin.isDestroyed() && mainWin.isVisible()) mainWin.minimize();
     await new Promise((r) => setTimeout(r, fromMain ? 350 : 120)); // 창이 사라질 때까지 대기
     const pt = screen.getCursorScreenPoint();
@@ -750,7 +765,8 @@ app.whenReady().then(() => {
   );
 
   tray = new Tray(nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 }));
-  tray.on('click', () => openMain());
+  // 맥은 메뉴 막대 아이콘을 누르면 메뉴만 보여야 한다 (click 까지 처리하면 메인 창이 같이 열림)
+  if (!isMac) tray.on('click', () => openMain());
   buildTrayMenu();
 
   const failedKeys = registerShortcuts();
