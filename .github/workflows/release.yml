@@ -83,10 +83,49 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Build app
+      - name: Build app (서명 전)
         run: |
           npm ci
-          npx electron-builder --mac zip --arm64 --publish never
+          # 서명은 아래 단계에서 직접 한다
+          npx electron-builder --mac dir --arm64 --publish never -c.mac.identity=null
+          ls -la dist/mac-arm64
+      # 항상 같은 인증서로 서명해야 macOS 가 업데이트 전후를 같은 앱으로 보고 손쉬운 사용 권한을 유지한다.
+      # 인증서(Secrets: MAC_CERT_P12, MAC_CERT_PASSWORD)가 없거나 서명에 실패하면 임시 서명(ad-hoc)으로 대신한다.
+      - name: Sign app
+        env:
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          APP=dist/mac-arm64/ZhKoStudy.app
+          SIGNED=no
+          if [ -n "$MAC_CERT_P12" ]; then
+            KC="$RUNNER_TEMP/zhko-sign.keychain-db"
+            KCPW=$(openssl rand -hex 16)
+            security create-keychain -p "$KCPW" "$KC"
+            security set-keychain-settings -lut 21600 "$KC"
+            security unlock-keychain -p "$KCPW" "$KC"
+            echo "$MAC_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+            security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
+            rm -f "$RUNNER_TEMP/cert.p12"
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$KCPW" "$KC" >/dev/null
+            security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+            security find-identity -p codesigning "$KC"
+            if codesign --force --deep --timestamp=none --keychain "$KC" --sign "ZhKoStudy Signing" "$APP"; then
+              SIGNED=yes
+            else
+              echo "::warning::인증서 서명 실패 - 임시 서명으로 대신합니다"
+            fi
+          else
+            echo "::warning::MAC_CERT_P12 가 없어 임시 서명으로 빌드합니다"
+          fi
+          if [ "$SIGNED" != "yes" ]; then
+            codesign --force --deep --sign - "$APP"
+          fi
+          codesign --verify --deep --strict "$APP" && echo "서명 확인 OK"
+          codesign -dv "$APP" 2>&1 | grep -E "Authority|Signature|Identifier"
+          codesign -dr - "$APP" 2>&1 | tail -1
+          V=$(node -p "require('./package.json').version")
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "dist/ZhKoStudy-$V-mac-arm64.zip"
           ls -la dist
       - uses: actions/upload-artifact@v4
         with:
