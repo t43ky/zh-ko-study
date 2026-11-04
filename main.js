@@ -182,6 +182,10 @@ let quickPrevActive = true;
 function rememberActive() {
   const f = BrowserWindow.getFocusedWindow();
   quickPrevActive = !!f && f !== quickWin;
+  // 맥: 다른 앱을 쓰다가 빠른 분석·글자 인식을 띄우면 앱이 활성화되면서 macOS 가
+  // 이 앱의 모든 창(메인 창 포함)을 앞으로 가져온다 → 메인 창을 잠깐 숨긴다.
+  // 숨긴 메인 창은 Dock 아이콘(activate)이나 메뉴로 앱을 열면 openMain() 에서 다시 보인다.
+  if (isMac && !quickPrevActive && mainWin && !mainWin.isDestroyed() && mainWin.isVisible()) mainWin.hide();
 }
 
 function hideQuick() {
