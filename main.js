@@ -415,6 +415,24 @@ while ($true) {
   return psProc;
 }
 
+// 맥 자동 복사 스크립트 (JavaScript for Automation)
+const MAC_COPY_JXA = `
+ObjC.import('Cocoa');
+var MODS = (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20); // Shift, Control, Option, Command
+var released = false;
+for (var i = 0; i < 100; i++) {           // 최대 2초
+  if (($.NSEvent.modifierFlags & MODS) === 0) { released = true; break; }
+  delay(0.02);
+}
+var se = Application('System Events');
+if (!released) {
+  // 2초가 지나도 누르고 있으면 수정 키를 뗀 것으로 처리한 뒤 복사
+  try { se.keyUp(59); se.keyUp(58); se.keyUp(56); } catch (e) {} // control, option, shift
+}
+delay(0.05);
+se.keystroke('c', { using: 'command down' });
+`;
+
 function simulateCopy() {
   return new Promise((resolve) => {
     const done = () => resolve();
@@ -425,8 +443,10 @@ function simulateCopy() {
         psWaiters.push(done);
         p.stdin.write('copy\n');
       } else if (isMac) {
-        // 손쉬운 사용(접근성) 권한이 필요. 단축키의 Control/Option 을 뗄 시간을 준 뒤 ⌘C
-        execFile('osascript', ['-e', 'delay 0.3', '-e', 'tell application "System Events" to keystroke "c" using command down'], done);
+        // 손쉬운 사용(접근성) 권한이 필요.
+        // 단축키의 Control/Option/Shift/⌘ 를 실제로 뗄 때까지 기다렸다가 ⌘C 를 보낸다.
+        // (Option 을 누른 채 ⌘C 가 나가면 사파리에서 Option+⌘+C = 개발자 도구(JavaScript 콘솔)가 열림)
+        execFile('osascript', ['-l', 'JavaScript', '-e', MAC_COPY_JXA], done);
       } else {
         execFile('xdotool', ['key', '--clearmodifiers', 'ctrl+c'], done);
       }
