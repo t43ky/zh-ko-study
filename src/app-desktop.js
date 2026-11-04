@@ -3,17 +3,53 @@
 (() => {
   const n = window.native;
   const $ = (s) => document.querySelector(s);
+  let mac = false;
 
-  function fill({ config, loginSupported }) {
-    $('#ap-shortcut').value = config.shortcut;
-    $('#ap-ocr-shortcut').value = config.ocrShortcut || '';
+  // 맥에서는 단축키를 맥 이름으로 표시 (Alt → Option, Super/Meta/Cmd → Command, Ctrl → Control)
+  // Electron 은 Option·Command·Control 이름도 그대로 단축키로 받으므로 저장할 때 바꿀 필요 없음
+  const pretty = (acc) =>
+    !mac || !acc
+      ? acc || ''
+      : acc
+          .split('+')
+          .map((k) =>
+            /^(ctrl|control)$/i.test(k) ? 'Control'
+              : /^(alt|option)$/i.test(k) ? 'Option'
+                : /^(super|meta|cmd|command|commandorcontrol|cmdorctrl)$/i.test(k) ? 'Command'
+                  : k
+          )
+          .join('+');
+
+  // 맥: 안내 문구의 Windows 식 키 이름을 맥 식으로 (글자만 바꾸고 요소는 그대로 둠)
+  let macTextDone = false;
+  function macTexts() {
+    if (!mac || macTextDone) return;
+    macTextDone = true;
+    const swaps = [
+      ['예: Ctrl+Alt+Z, Ctrl+Shift+F1, Alt+Q', '예: Control+Option+Z, Command+Shift+F1, Option+Q'],
+      ['Ctrl+Enter', '⌘+Enter'],
+      ['Ctrl+C', '⌘C'],
+    ];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      let t = node.nodeValue;
+      for (const [a, b] of swaps) t = t.split(a).join(b);
+      if (t !== node.nodeValue) node.nodeValue = t;
+    }
+  }
+
+  function fill({ config, loginSupported, platform }) {
+    if (platform) mac = platform === 'darwin';
+    macTexts();
+    $('#ap-shortcut').value = pretty(config.shortcut);
+    $('#ap-ocr-shortcut').value = pretty(config.ocrShortcut);
     $('#ap-ocr-lang').value = config.ocrLang || 'chi_sim';
-    document.querySelectorAll('.ocr-key').forEach((el) => (el.textContent = config.ocrShortcut));
+    document.querySelectorAll('.ocr-key').forEach((el) => (el.textContent = pretty(config.ocrShortcut)));
     $('#ap-autocopy').checked = !!config.autoCopy;
     $('#ap-watch').checked = !!config.watchClipboard;
     $('#ap-login').checked = !!config.openAtLogin;
     if (loginSupported === false) $('#ap-login-row').hidden = true;
-    document.querySelectorAll('.sc-key, #sc-hint').forEach((el) => (el.textContent = config.shortcut));
+    document.querySelectorAll('.sc-key, #sc-hint').forEach((el) => (el.textContent = pretty(config.shortcut)));
   }
   const load = async () => fill(await n.invoke('config-get'));
   n.on('config-changed', (config) => fill({ config }));
@@ -24,10 +60,10 @@
     e.preventDefault();
     if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
     const parts = [];
-    if (e.ctrlKey) parts.push('Ctrl');
-    if (e.altKey) parts.push('Alt');
+    if (e.ctrlKey) parts.push(mac ? 'Control' : 'Ctrl');
+    if (e.altKey) parts.push(mac ? 'Option' : 'Alt');
     if (e.shiftKey) parts.push('Shift');
-    if (e.metaKey) parts.push('Super');
+    if (e.metaKey) parts.push(mac ? 'Command' : 'Super');
     let k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
     if (/^Key[A-Z]$/.test(e.code)) k = e.code.slice(3);
     if (/^Digit\d$/.test(e.code)) k = e.code.slice(5);
@@ -42,7 +78,7 @@
     btn.addEventListener('click', async () => {
       const v = $('#' + btn.dataset.for).value.trim();
       const r = await n.invoke('config-set', { [btn.dataset.key]: v });
-      if (r.ok) alert(`단축키를 ${r.config[btn.dataset.key]} 로 바꿨습니다.`);
+      if (r.ok) alert(`단축키를 ${pretty(r.config[btn.dataset.key])} 로 바꿨습니다.`);
       else alert(`'${v}' 단축키를 등록할 수 없습니다. 다른 단축키와 같거나, 다른 프로그램이 쓰고 있거나, 지원하지 않는 조합입니다.`);
       fill(r);
     })
@@ -146,6 +182,52 @@
     await n.invoke('config-set', { appleTranslate: e.target.checked });
     load();
   });
+  load();
+  window.addEventListener('hashchange', load);
+})();
+
+/* 연속 탭 단축키 (⌘ 두 번 등) */
+(() => {
+  const n = window.native;
+  const all = (s) => [...document.querySelectorAll(s)];
+  let platform = '';
+  // Windows 는 Win 키(시작 메뉴가 열림)를 빼고, Alt 는 메뉴 막대가 켜질 수 있다고 안내
+  const KEYS = () =>
+    platform === 'darwin'
+      ? [['Meta', '⌘ Command'], ['Alt', '⌥ Option'], ['Ctrl', '⌃ Control'], ['Shift', '⇧ Shift']]
+      : [['Ctrl', 'Ctrl'], ['Shift', 'Shift'], ['Alt', 'Alt']];
+
+  function fill(config) {
+    for (const sel of all('.tap-sel')) {
+      const parts = (config[sel.dataset.key] || '').split(',');
+      sel.innerHTML = '<option value="">사용 안 함</option>' + KEYS().map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+      sel.value = parts[+sel.dataset.pos] || '';
+    }
+    document.getElementById('tap-note').textContent =
+      platform === 'darwin'
+        ? '처음 켤 때 손쉬운 사용 권한을 물어봅니다. 허용한 뒤 앱을 다시 실행해야 동작할 수 있습니다.'
+        : 'Alt 를 혼자 누르면 일부 프로그램에서 메뉴 막대가 선택될 수 있어 Ctrl·Shift 를 권장합니다.';
+  }
+
+  async function save(key) {
+    const [a, b] = all(`.tap-sel[data-key="${key}"]`).map((s) => s.value);
+    if (!!a !== !!b) return; // 두 칸을 다 고를 때까지 기다림
+    const v = a && b ? a + ',' + b : '';
+    const { config } = await n.invoke('config-get');
+    const other = key === 'tapShortcut' ? config.tapOcrShortcut : config.tapShortcut;
+    if (v && v === other) {
+      alert('빠른 분석과 화면 글자 인식에 같은 연속 탭을 쓸 수 없습니다.');
+      return fill(config);
+    }
+    await n.invoke('config-set', { [key]: v });
+  }
+
+  all('.tap-sel').forEach((sel) => sel.addEventListener('change', () => save(sel.dataset.key)));
+  async function load() {
+    const r = await n.invoke('config-get');
+    platform = r.platform;
+    fill(r.config);
+  }
   load();
   window.addEventListener('hashchange', load);
 })();

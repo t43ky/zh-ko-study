@@ -1,7 +1,7 @@
 {
   "name": "zh-ko-study-app",
   "productName": "ZhKoStudy",
-  "version": "1.8.3",
+  "version": "1.9.0",
   "description": "중한 공부 번역기 - 데스크톱 앱",
   "main": "main.js",
   "author": "zh-ko-study",
@@ -26,7 +26,8 @@
       "package.json",
       "updater.js",
       "dict.js",
-      "dict/**/*"
+      "dict/**/*",
+      "taps.js"
     ],
     "directories": {
       "output": "dist",
@@ -77,7 +78,8 @@
         "from": "build/icon.ico",
         "to": "icon.ico"
       }
-    ]
+    ],
+    "npmRebuild": false
   },
   "devDependencies": {
     "@tesseract.js-data/chi_sim": "^1.0.0",
@@ -93,6 +95,7 @@
   },
   "dependencies": {
     "jieba-wasm": "^2.4.0",
+    "uiohook-napi": "^1.5.5",
     "yauzl": "^3.4.0"
   }
 }
