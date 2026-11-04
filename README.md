@@ -30,6 +30,18 @@ Firefox 확장판과 같은 기능을 **독립 실행 프로그램**으로 만�
 - `dict/cedict.tsv`: [CC-CEDICT](https://www.mdbg.net/chinese/dictionary?page=cedict) 기반 영어 뜻 (CC BY-SA 4.0)
 - 단어 뜻은 ① 한국어 사전 → ② 없으면 Google 번역 순서로 보여주고, CC-CEDICT 영어 뜻을 참고로 함께 표시합니다.
 
+## 설치 (Mac, Apple Silicon)
+1. Releases 에서 `ZhKoStudy-<버전>-mac-arm64.zip` 을 받아 압축을 풀고, `ZhKoStudy.app` 을 **응용 프로그램** 폴더로 옮깁니다.
+2. 처음 열 때 "확인되지 않은 개발자" / "손상되었기 때문에 열 수 없습니다" 경고가 나오면 (코드 서명이 없어서) 터미널에서:
+   ```bash
+   xattr -cr /Applications/ZhKoStudy.app
+   ```
+   또는 시스템 설정 → 개인정보 보호 및 보안 → 아래쪽의 **그래도 열기**.
+3. 권한: 단축키로 선택한 글을 자동 복사하려면 **손쉬운 사용**, 화면 글자 인식을 하려면 **화면 기록** 권한을 허용합니다 (처음 쓸 때 물어봄).
+4. 애플 번역: macOS 26(Tahoe) 이상에서, 시스템 설정 → 일반 → 언어 및 지역 → **번역 언어**에서 중국어(간체)·한국어를 내려받습니다. 안 되면 Google 번역을 씁니다.
+- 맥 기본 단축키: 빠른 분석 `Control+Option+Z`, 화면 글자 인식 `Control+Option+X` (설정에서 변경)
+- 애플 번역 도우미: `native/mac/zhko-translate.swift` (`npm run build:mac-helper`, Xcode 26 필요)
+
 ## 데이터
 - 보관함·설정은 `%APPDATA%\ZhKoStudy\data.json`, `config.json`에 저장됩니다.
 - 확장판 보관함에서 "내보내기"한 JSON을 앱의 보관함 → "가져오기"로 옮길 수 있습니다 (반대도 가능).

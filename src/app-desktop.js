@@ -124,3 +124,28 @@
   load();
   window.addEventListener('hashchange', load);
 })();
+
+/* 맥: 애플 번역 상태 */
+(() => {
+  const n = window.native;
+  const $ = (s) => document.querySelector(s);
+  async function load() {
+    const { config, platform } = await n.invoke('config-get');
+    if (platform !== 'darwin') return;
+    $('#apple-sec').hidden = false;
+    $('#ap-apple').checked = config.appleTranslate !== false;
+    $('#apple-status').textContent = '확인 중…';
+    const st = await n.invoke('native-status');
+    $('#apple-status').innerHTML = !st.enabled
+      ? '현재: <b>Google 번역</b> (애플 번역 꺼짐)'
+      : st.ready
+        ? '현재: <b style="color:var(--ok)">애플 번역 사용 중</b> (기기 안에서 번역)'
+        : `현재: <b>Google 번역</b> · <span style="color:var(--bad)">${window.ZhKo.esc(st.error || '애플 번역을 쓸 수 없습니다')}</span>`;
+  }
+  $('#ap-apple').addEventListener('change', async (e) => {
+    await n.invoke('config-set', { appleTranslate: e.target.checked });
+    load();
+  });
+  load();
+  window.addEventListener('hashchange', load);
+})();

@@ -152,15 +152,32 @@ async function gtx(q, opts = {}) {
   return res.json();
 }
 
+// 맥 앱: 애플 번역(기기 안, 무료)을 먼저 쓰고, 안 되면 Google 번역으로 대신한다.
+// 돌려주는 값: null(애플 번역 없음) | { text } | { error }
+async function nativeTranslate(text) {
+  if (typeof globalThis.zhkoNative !== 'function') return null;
+  return globalThis.zhkoNative(text).catch((e) => ({ error: e.message }));
+}
+
 async function translate(text) {
   const key = 'T:' + text;
   if (memCache.has(key)) return memCache.get(key);
+  let nativeError = '';
+  const n = await nativeTranslate(text);
+  if (n && n.text != null) {
+    const out = { translation: n.text, source: 'apple' };
+    cacheSet(key, out);
+    return out;
+  }
+  if (n && n.error) nativeError = n.error;
   const data = await gtx(text, { dt: ['t', 'rm'] });
   const sentences = data.sentences || [];
   const out = {
     translation: sentences.filter((s) => s.trans != null).map((s) => s.trans).join(''),
+    source: 'google',
+    nativeError,
   };
-  cacheSet(key, out);
+  if (!nativeError) cacheSet(key, out);
   return out;
 }
 
@@ -175,8 +192,13 @@ async function googleWord(word) {
     cacheSet(key, stored);
     return stored;
   }
-  const data = await gtx(word, { dt: ['t'] });
-  const out = { trans: (data.sentences || []).filter((s) => s.trans != null).map((s) => s.trans).join('') };
+  const n = await nativeTranslate(word);
+  let out;
+  if (n && n.text != null) out = { trans: n.text };
+  else {
+    const data = await gtx(word, { dt: ['t'] });
+    out = { trans: (data.sentences || []).filter((s) => s.trans != null).map((s) => s.trans).join('') };
+  }
   cacheSet(key, out);
   setSessionCache(key, out);
   return out;

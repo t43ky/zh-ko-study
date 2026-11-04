@@ -10,12 +10,17 @@
 const { app, net, dialog, shell, Notification } = require('electron');
 const path = require('path');
 const ofs = require('original-fs'); // .asar 파일을 일반 파일로 다루기 위해 (Electron 의 asar 처리 우회)
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const yauzl = require('yauzl');
 
 const REPO = 't43ky/zh-ko-study';
 const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`;
-const ASSET_RE = /win-x64\.zip$/i;
+// 플랫폼별 배포 파일: Windows zip / 맥(Apple Silicon) zip
+const ASSET_RE = process.platform === 'darwin' ? /mac-arm64\.zip$/i : /win-x64\.zip$/i;
+const isMac = process.platform === 'darwin';
+
+// 맥: 실행 중인 .app 묶음 경로 (…/ZhKoStudy.app/Contents/MacOS/ZhKoStudy → …/ZhKoStudy.app)
+const macBundle = () => path.resolve(path.dirname(process.execPath), '..', '..');
 
 const updateDir = () => path.join(app.getPath('userData'), 'update');
 const stagingDir = () => path.join(updateDir(), 'staging');
@@ -184,7 +189,13 @@ function createUpdater({ getConfig, notify, beforeQuit, isTempLocation, broadcas
   let timer = null;
   let prompting = false;
 
-  const canSelfUpdate = () => process.platform === 'win32' && app.isPackaged && !isTempLocation();
+  const canSelfUpdate = () => {
+    if (!app.isPackaged) return false;
+    if (process.platform === 'win32') return !isTempLocation();
+    // 맥: 다운로드 폴더에서 바로 실행하면 macOS 가 임시 위치(AppTranslocation)에서 돌려 교체할 수 없음
+    if (isMac) return !process.execPath.includes('/AppTranslocation/') && /\.app$/.test(macBundle());
+    return false;
+  };
 
   function status() {
     return {
@@ -249,6 +260,7 @@ function createUpdater({ getConfig, notify, beforeQuit, isTempLocation, broadcas
       shell.openExternal(RELEASES_PAGE);
       return status();
     }
+    if (isMac) return installMac();
     const dest = path.dirname(process.execPath);
     const exeName = path.basename(process.execPath);
     try {
@@ -295,6 +307,75 @@ function createUpdater({ getConfig, notify, beforeQuit, isTempLocation, broadcas
       state = 'error';
       lastError = e.message || String(e);
       log(`install failed: ${e && e.stack ? e.stack : e}`);
+      emit();
+      throw e;
+    }
+    beforeQuit();
+    setTimeout(() => app.quit(), 300);
+    return status();
+  }
+
+  // 맥: zip 을 ditto 로 풀고(심볼릭 링크·실행 권한 유지), 앱이 끝난 뒤 bash 스크립트로 .app 을 바꿔 끼운다
+  async function installMac() {
+    const bundle = macBundle();
+    const parent = path.dirname(bundle);
+    try {
+      ofs.accessSync(parent, ofs.constants.W_OK);
+    } catch {
+      throw new Error(`앱이 있는 폴더에 쓸 수 없습니다: ${parent}\n응용 프로그램 폴더로 옮긴 뒤 다시 시도하세요`);
+    }
+    const zip = path.join(updateDir(), `ZhKoStudy-${latest.version}-mac.zip`);
+    const staging = stagingDir();
+    try {
+      log(`mac download ${latest.version}`);
+      state = 'downloading';
+      progress = 0;
+      emit();
+      await download(latest.url, zip, latest.size);
+      state = 'extracting';
+      progress = 0;
+      emit();
+      ofs.rmSync(staging, { recursive: true, force: true });
+      ofs.mkdirSync(staging, { recursive: true });
+      await new Promise((res, rej) => execFile('/usr/bin/ditto', ['-x', '-k', zip, staging], (e) => (e ? rej(e) : res())));
+      const appName = ofs.readdirSync(staging).find((f) => f.endsWith('.app'));
+      if (!appName) throw new Error('업데이트 파일에 앱이 없습니다');
+      try {
+        ofs.rmSync(zip, { force: true });
+      } catch {}
+      const script = path.join(updateDir(), 'apply-update.sh');
+      ofs.writeFileSync(
+        script,
+        `#!/bin/bash
+PID="$1"; NEW="$2"; DEST="$3"; LOG="$4"
+echo "[$(date)] mac apply start" >> "$LOG"
+for i in $(seq 1 300); do kill -0 "$PID" 2>/dev/null || break; sleep 0.2; done
+sleep 0.8
+rm -rf "$DEST.old"
+if mv "$DEST" "$DEST.old" && mv "$NEW" "$DEST"; then
+  rm -rf "$DEST.old"
+  xattr -dr com.apple.quarantine "$DEST" 2>/dev/null
+  echo "[$(date)] mac apply done" >> "$LOG"
+  open "$DEST" --args --updated
+else
+  echo "[$(date)] mac apply failed" >> "$LOG"
+  [ -d "$DEST.old" ] && [ ! -d "$DEST" ] && mv "$DEST.old" "$DEST"
+  open "$DEST" --args --update-failed
+fi
+`,
+        { mode: 0o755 }
+      );
+      state = 'ready';
+      progress = 100;
+      emit();
+      spawn('/bin/bash', [script, String(process.pid), path.join(staging, appName), bundle, path.join(updateDir(), 'update.log')], {
+        detached: true,
+        stdio: 'ignore',
+      }).unref();
+    } catch (e) {
+      state = 'error';
+      lastError = e.message || String(e);
+      log(`mac install failed: ${e && e.stack ? e.stack : e}`);
       emit();
       throw e;
     }

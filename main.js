@@ -36,14 +36,15 @@ const DATA_FILE = path.join(userDir, 'data.json');
 const CONFIG_FILE = path.join(userDir, 'config.json');
 
 const DEFAULT_CONFIG = {
-  shortcut: isMac ? 'Command+Shift+Z' : 'Ctrl+Alt+Z',
+  shortcut: isMac ? 'Control+Alt+Z' : 'Ctrl+Alt+Z',
   autoCopy: true,
   watchClipboard: false,
   openAtLogin: false,
   shownTrayHint: false,
   askedShortcuts: false,
   autoUpdate: true,
-  ocrShortcut: isMac ? 'Command+Shift+X' : 'Ctrl+Alt+X',
+  appleTranslate: true, // 맥: 애플 번역 사용
+  ocrShortcut: isMac ? 'Control+Alt+X' : 'Ctrl+Alt+X',
   ocrLang: 'chi_sim', // chi_sim(간체) | chi_tra(번체)
 };
 
@@ -148,7 +149,9 @@ function createQuick() {
     focusable: true,
     webPreferences: webPrefs(),
   });
-  quickWin.setAlwaysOnTop(true, 'floating');
+  quickWin.setAlwaysOnTop(true, isMac ? 'screen-saver' : 'floating');
+  // 맥: 전체 화면 앱·다른 데스크톱 위에서도 빠른 분석 창이 보이도록
+  if (isMac) quickWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   guardNavigation(quickWin);
   quickWin.loadFile(path.join(__dirname, 'src', 'quick.html'));
   quickWin.on('blur', () => hideQuick());
@@ -176,6 +179,83 @@ function showQuick(text) {
   else send();
 }
 const isLinux = () => process.platform === 'linux';
+
+/* ---------------- 애플 번역 (맥 전용) ---------------- */
+// native/mac/zhko-translate.swift 로 만든 도우미 프로그램을 띄워 두고 한 줄씩 주고받는다
+
+const native = { proc: null, ready: null, status: null, seq: 0, waiters: new Map() };
+
+function nativeHelperPath() {
+  return app.isPackaged ? path.join(process.resourcesPath, 'zhko-translate') : path.join(__dirname, 'build', 'mac', 'zhko-translate');
+}
+
+function startNative() {
+  if (native.proc) return native.ready;
+  const bin = nativeHelperPath();
+  if (!fs.existsSync(bin)) {
+    native.status = { ready: false, code: 'missing', error: '애플 번역 도우미 파일이 없습니다' };
+    return (native.ready = Promise.resolve(native.status));
+  }
+  native.ready = new Promise((resolve) => {
+    let buf = '';
+    const p = spawn(bin, [], { stdio: ['pipe', 'pipe', 'ignore'] });
+    native.proc = p;
+    const timer = setTimeout(() => resolve((native.status = { ready: false, code: 'timeout', error: '애플 번역 도우미가 응답하지 않습니다' })), 8000);
+    p.stdout.on('data', (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i);
+        buf = buf.slice(i + 1);
+        let msg;
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if ('ready' in msg) {
+          clearTimeout(timer);
+          native.status = msg;
+          resolve(msg);
+        } else if (msg.id != null && native.waiters.has(msg.id)) {
+          native.waiters.get(msg.id)(msg);
+          native.waiters.delete(msg.id);
+        }
+      }
+    });
+    const fail = (err) => {
+      clearTimeout(timer);
+      native.proc = null;
+      native.status = { ready: false, code: 'crashed', error: '애플 번역 도우미 실행 실패' + (err ? ': ' + err.message : '') };
+      resolve(native.status);
+      for (const f of native.waiters.values()) f({ error: native.status.error, code: 'crashed' });
+      native.waiters.clear();
+      native.ready = null; // 다음 요청 때 다시 시도
+    };
+    p.on('error', fail);
+    p.on('exit', () => fail());
+  });
+  return native.ready;
+}
+
+// 돌려주는 값: null(맥이 아니거나 꺼짐) | { text } | { error, code }
+async function nativeTranslate(text) {
+  if (!isMac || !config.appleTranslate) return null;
+  const st = await startNative();
+  if (!st || !st.ready) return { error: (st && st.error) || '애플 번역을 쓸 수 없습니다', code: st && st.code };
+  const id = ++native.seq;
+  return new Promise((resolve) => {
+    const t = setTimeout(() => {
+      native.waiters.delete(id);
+      resolve({ error: '애플 번역 시간이 초과되었습니다', code: 'timeout' });
+    }, 15000);
+    native.waiters.set(id, (m) => {
+      clearTimeout(t);
+      resolve(m.text != null ? { text: m.text } : { error: m.error || '번역 실패', code: m.code });
+    });
+    native.proc.stdin.write(JSON.stringify({ id, text: String(text).slice(0, 5000) }) + '\n');
+  });
+}
 
 /* ---------------- 단어 나누기 (jieba) ---------------- */
 
@@ -330,7 +410,8 @@ function simulateCopy() {
         psWaiters.push(done);
         p.stdin.write('copy\n');
       } else if (isMac) {
-        execFile('osascript', ['-e', 'delay 0.15', '-e', 'tell application "System Events" to keystroke "c" using command down'], done);
+        // 손쉬운 사용(접근성) 권한이 필요. 단축키의 Control/Option 을 뗄 시간을 준 뒤 ⌘C
+        execFile('osascript', ['-e', 'delay 0.3', '-e', 'tell application "System Events" to keystroke "c" using command down'], done);
       } else {
         execFile('xdotool', ['key', '--clearmodifiers', 'ctrl+c'], done);
       }
@@ -601,6 +682,13 @@ ipcMain.handle('open-main', (_e, hash) => openMain(hash || 'analyze'));
 ipcMain.handle('config-get', () => ({ config, platform: process.platform, loginSupported: !isLinux() }));
 ipcMain.handle('config-set', (_e, patch) => applyConfig(patch || {}));
 ipcMain.handle('quick-hide', () => hideQuick());
+ipcMain.handle('native-translate', (_e, text) => nativeTranslate(String(text || '')));
+ipcMain.handle('native-status', async () => {
+  if (!isMac) return { supported: false };
+  if (!config.appleTranslate) return { supported: true, enabled: false };
+  const st = await startNative();
+  return Object.assign({ supported: true, enabled: true }, st);
+});
 ipcMain.handle('segment', (_e, text) => segmentText(String(text || '')));
 ipcMain.handle('dict', (_e, word, py) => dictionary.lookup(word, py));
 // 한자가 없는 토큰(yyds, 666, emo …)이 인터넷 용어인지 (두 자리 이하 숫자는 가격 등과 헷갈려 제외)
@@ -621,6 +709,7 @@ app.on('before-quit', () => (quitting = true));
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   if (psProc) psProc.kill();
+  if (native.proc) native.proc.kill();
 });
 app.on('window-all-closed', (e) => e.preventDefault?.());
 
@@ -629,6 +718,26 @@ global.__zhkoCapture = () => startCapture(); // 테스트·디버그용
 
 app.whenReady().then(() => {
   if (isWin) app.setAppUserModelId('local.zhko.study');
+  // 맥: 응용 프로그램 폴더 밖(다운로드 폴더 등)에서 실행하면 옮길지 묻는다 (자동 업데이트를 위해 필요)
+  if (isMac && app.isPackaged && !app.isInApplicationsFolder() && !config.askedMoveToApps) {
+    config.askedMoveToApps = true;
+    saveConfig();
+    const r = dialog.showMessageBoxSync({
+      type: 'question',
+      message: '응용 프로그램 폴더로 옮길까요?',
+      detail: '응용 프로그램 폴더에 있어야 자동 업데이트가 됩니다.',
+      buttons: ['옮기기', '나중에'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (r === 0) {
+      try {
+        if (app.moveToApplicationsFolder()) return; // 옮긴 뒤 자동으로 다시 실행됨
+      } catch (e) {
+        dialog.showErrorBox('옮기지 못했습니다', e.message);
+      }
+    }
+  }
   // 번역 서버 응답에 CORS 허용 헤더 추가 (앱 화면은 file:// 에서 열리므로)
   session.defaultSession.webRequest.onHeadersReceived(
     { urls: ['https://translate.googleapis.com/*', 'https://translate.google.com/*'] },
@@ -658,5 +767,6 @@ app.whenReady().then(() => {
   afterUpdateStartup({ notify });
   updater.start();
   setTimeout(() => { try { segmentText('预热'); } catch {} }, 1500); // 사전 미리 불러오기
+  if (isMac && config.appleTranslate) setTimeout(() => startNative(), 2000); // 애플 번역 도우미 미리 실행
   app.on('activate', () => openMain());
 });

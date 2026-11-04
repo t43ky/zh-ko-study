@@ -272,6 +272,7 @@
   .c-hj { font-size: 12.5px; color: var(--muted); margin-left: 6px; }
   .c-sec { font-size: 11px; font-weight: 700; color: var(--muted); margin: 12px 0 4px; letter-spacing: .04em; }
   .c-main { font-size: 15px; font-weight: 600; }
+  .trans-meta { font-size: 11px; margin-top: 6px; color: var(--muted); }
   .c-pos { font-size: 13px; margin: 2px 0; }
   .c-pos b { display: inline-block; font-size: 11px; color: var(--accent); background: var(--accent-soft); border-radius: 4px;
     padding: 0 5px; margin-right: 5px; font-weight: 600; }
@@ -361,7 +362,11 @@
     api.runtime.sendMessage({ type: 'translate', text: state.text }).then((r) => {
       if (state !== myState) return;
       if (!r || r.error) state.transError = (r && r.error) || '번역 실패';
-      else state.translation = r.translation;
+      else {
+        state.translation = r.translation;
+        state.transSource = r.source || '';
+        state.nativeError = r.nativeError || '';
+      }
       renderTranslation();
     });
 
@@ -432,7 +437,16 @@
     if (!el) return;
     if (state.transError) el.innerHTML = `<span class="err">${esc(state.transError)}</span>`;
     else if (state.translation == null) el.innerHTML = '<span class="loading">번역 중…</span>';
-    else el.textContent = state.translation;
+    else {
+      // 맥 앱에서만 번역 출처를 표시 (애플 번역 / 애플 번역 실패 시 Google)
+      const meta =
+        state.transSource === 'apple'
+          ? 'Apple 번역'
+          : state.nativeError
+            ? `Google 번역 · <span class="err">Apple 번역 실패: ${esc(state.nativeError)}</span>`
+            : '';
+      el.innerHTML = esc(state.translation) + (meta ? `<div class="trans-meta">${meta}</div>` : '');
+    }
   }
 
   /* ================= 상세 카드 ================= */

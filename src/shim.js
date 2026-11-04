@@ -46,6 +46,8 @@
   // 사전 조회 (한국어 뜻 + CC-CEDICT, 메인 프로세스)
   window.zhkoDict = (word, py) => n.invoke('dict', word, py);
   window.zhkoExprCheck = (list) => n.invoke('expr-check', list);
+  // 애플 번역 (맥 앱 전용, 메인 프로세스). 다른 OS 에서는 null
+  window.zhkoNative = (text) => n.invoke('native-translate', text);
 
   window.browser = {
     storage: {

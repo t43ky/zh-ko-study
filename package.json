@@ -1,7 +1,7 @@
 {
   "name": "zh-ko-study-app",
   "productName": "ZhKoStudy",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "중한 공부 번역기 - 데스크톱 앱",
   "main": "main.js",
   "author": "zh-ko-study",
@@ -9,10 +9,11 @@
   "scripts": {
     "start": "electron .",
     "dist:win": "electron-builder --win zip --x64",
-    "dist:mac": "electron-builder --mac zip",
+    "dist:mac": "electron-builder --mac zip --arm64",
     "dist:linux": "electron-builder --linux AppImage",
     "sync-ocr": "node scripts/sync-ocr.js",
-    "build-dict": "node scripts/build-dict.js"
+    "build-dict": "node scripts/build-dict.js",
+    "build:mac-helper": "mkdir -p build/mac && swiftc -O -parse-as-library -target arm64-apple-macos14.4 native/mac/zhko-translate.swift -o build/mac/zhko-translate"
   },
   "build": {
     "appId": "local.zhko.study",
@@ -42,8 +43,29 @@
       "createDesktopShortcut": true
     },
     "mac": {
-      "icon": "build/icon.png",
-      "category": "public.app-category.education"
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon-mac.png",
+      "category": "public.app-category.education",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "minimumSystemVersion": "14.4",
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "선택한 글을 복사(⌘C)하기 위해 시스템 이벤트를 사용합니다.",
+        "NSScreenCaptureUsageDescription": "화면에서 글자를 인식하기 위해 화면을 캡처합니다."
+      },
+      "extraResources": [
+        {
+          "from": "build/mac/zhko-translate",
+          "to": "zhko-translate"
+        }
+      ]
     },
     "linux": {
       "icon": "build/icon.png",
