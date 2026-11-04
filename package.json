@@ -1,7 +1,7 @@
 {
   "name": "zh-ko-study-app",
   "productName": "ZhKoStudy",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "description": "중한 공부 번역기 - 데스크톱 앱",
   "main": "main.js",
   "author": "zh-ko-study",
@@ -26,8 +26,7 @@
       "package.json",
       "updater.js",
       "dict.js",
-      "dict/**/*",
-      "taps.js"
+      "dict/**/*"
     ],
     "directories": {
       "output": "dist",
@@ -95,7 +94,6 @@
   },
   "dependencies": {
     "jieba-wasm": "^2.4.0",
-    "uiohook-napi": "^1.5.5",
     "yauzl": "^3.4.0"
   }
 }

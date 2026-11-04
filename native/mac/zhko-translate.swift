@@ -4,9 +4,63 @@
 // 표준 출력으로 {"id": 1, "text": "..."} 또는 {"id": 1, "error": "...", "code": "..."} 를 돌려준다.
 // 시작하자마자 상태 한 줄 {"ready": true} 또는 {"ready": false, "code": "...", "error": "..."} 을 먼저 보낸다.
 // 앱 없이 직접 세션을 만드는 API(TranslationSession(installedSource:target:))는 macOS 26 부터 지원.
+//
+// --selected-text 로 실행하면 번역 대신, 지금 맨 앞 앱에서 선택된 글자를 손쉬운 사용(Accessibility) API 로
+// 직접 읽어서 {"text": "..."} 또는 {"error": "...", "code": "..."} 한 줄을 출력하고 끝난다.
+// (⌘C 를 보내지 않으므로 클립보드를 건드리지 않고, 다른 단축키와 겹치지도 않는다)
 
 import Foundation
+import AppKit
+import ApplicationServices
 import Translation
+
+// MARK: - 선택된 글 읽기 (손쉬운 사용)
+
+func axValue(_ el: AXUIElement, _ attr: String) -> CFTypeRef? {
+    var v: CFTypeRef?
+    return AXUIElementCopyAttributeValue(el, attr as CFString, &v) == .success ? v : nil
+}
+
+// 일반 앱: AXSelectedText / 사파리 등 WebKit: AXSelectedTextMarkerRange → AXStringForTextMarkerRange
+func selectedText(of el: AXUIElement) -> String? {
+    if let s = axValue(el, kAXSelectedTextAttribute) as? String, !s.isEmpty { return s }
+    if let range = axValue(el, "AXSelectedTextMarkerRange") {
+        var out: CFTypeRef?
+        if AXUIElementCopyParameterizedAttributeValue(el, "AXStringForTextMarkerRange" as CFString, range, &out) == .success,
+           let s = out as? String, !s.isEmpty {
+            return s
+        }
+    }
+    return nil
+}
+
+func readSelectedText() -> [String: Any] {
+    guard AXIsProcessTrusted() else {
+        return ["error": "손쉬운 사용 권한이 없습니다", "code": "access"]
+    }
+    guard let front = NSWorkspace.shared.frontmostApplication else {
+        return ["error": "맨 앞 앱을 찾지 못했습니다", "code": "none"]
+    }
+    let appEl = AXUIElementCreateApplication(front.processIdentifier)
+    // 크롬·Electron 앱은 손쉬운 사용 정보를 기본으로 꺼 두므로 켜 달라고 요청
+    _ = AXUIElementSetAttributeValue(appEl, "AXManualAccessibility" as CFString, true as CFTypeRef)
+
+    var start: AXUIElement? = nil
+    if let f = axValue(appEl, kAXFocusedUIElementAttribute) {
+        start = (f as! AXUIElement)
+    } else if let f = axValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute) {
+        start = (f as! AXUIElement)
+    }
+    // 초점이 있는 요소에서 시작해 부모 쪽으로 몇 단계 올라가며 찾는다 (웹 페이지는 상위 영역이 선택을 가짐)
+    var el = start
+    var depth = 0
+    while let cur = el, depth < 8 {
+        if let s = selectedText(of: cur) { return ["text": s] }
+        el = axValue(cur, kAXParentAttribute).map { $0 as! AXUIElement }
+        depth += 1
+    }
+    return ["error": "선택된 글을 읽지 못했습니다", "code": "empty"]
+}
 
 func emit(_ obj: [String: Any]) {
     guard let data = try? JSONSerialization.data(withJSONObject: obj),
@@ -28,6 +82,10 @@ func answerAllWithError(code: String, message: String) {
 @main
 struct ZhkoTranslate {
     static func main() async {
+        if CommandLine.arguments.contains("--selected-text") {
+            emit(readSelectedText())
+            return
+        }
         if #available(macOS 26.0, *) {
             await run()
         } else {

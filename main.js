@@ -13,7 +13,6 @@ const fs = require('fs');
 const { spawn, execFile } = require('child_process');
 const { createUpdater, runApplyHelper, afterUpdateStartup } = require('./updater');
 const dictionary = require('./dict');
-const { createTapDetector } = require('./taps');
 
 const ZH_RE = /[㐀-䶿一-鿿豈-﫿]/;
 const isMac = process.platform === 'darwin';
@@ -45,8 +44,6 @@ const DEFAULT_CONFIG = {
   askedShortcuts: false,
   autoUpdate: true,
   appleTranslate: true, // 맥: 애플 번역 사용
-  tapShortcut: '', // 연속 탭 단축키 (예: 'Meta,Meta' = ⌘ 두 번). 빈 값이면 사용 안 함
-  tapOcrShortcut: '',
   ocrShortcut: isMac ? 'Control+Option+X' : 'Ctrl+Alt+X',
   ocrLang: 'chi_sim', // chi_sim(간체) | chi_tra(번체)
 };
@@ -437,39 +434,44 @@ while ($true) {
   return psProc;
 }
 
-// 맥 자동 복사 스크립트 (JavaScript for Automation) 두 가지
-// 1) 빠른 방식: ⌘C 키 이벤트를 직접 만들어 수정 키를 "⌘ 만"으로 못 박아 보낸다.
-//    단축키의 Control/Option 을 아직 누르고 있어도 앱에는 정확히 ⌘C 만 전달된다.
-//    (예전 방식은 Option 이 섞여 Option+⌘+C = 사파리 개발자 도구가 열렸음)
-//    단, 이 앱에 "손쉬운 사용" 권한이 없으면 macOS 가 오류 없이 이벤트를 버리므로 먼저 권한을 확인한다.
-const MAC_COPY_FAST = `
-ObjC.import('CoreGraphics');
-var CMD = 0x100000;            // kCGEventFlagMaskCommand
-var KEY_C = 8;                 // kVK_ANSI_C
-if (!$.CGPreflightPostEventAccess()) throw new Error('no-post-event-access');
-var src = $.CGEventSourceCreate(-1);              // kCGEventSourceStatePrivate: 실제 키보드 상태와 분리
-var down = $.CGEventCreateKeyboardEvent(src, KEY_C, true);
-var up = $.CGEventCreateKeyboardEvent(src, KEY_C, false);
-$.CGEventSetFlags(down, CMD);
-$.CGEventSetFlags(up, CMD);
-$.CGEventPost(0, down);                           // kCGHIDEventTap
-$.CGEventPost(0, up);
-'sent';
-`;
-// 2) 안전한 방식: 수정 키를 뗄 때까지 기다렸다가 System Events 로 ⌘C (최대 2초 대기)
-const MAC_COPY_SAFE = `
+// 맥: 선택한 글 가져오기
+// 1) 손쉬운 사용 API 로 선택된 글을 직접 읽는다 (애플 번역 도우미 --selected-text).
+//    ⌘C 를 보내지 않으니 클립보드도 안 건드리고, 사파리 개발자 도구(Option+⌘+C) 같은 충돌이 없다.
+// 2) 읽지 못하면(지원하지 않는 앱 등) 수정 키를 다 뗀 뒤 ⌘C 를 "키 위치(key code 8 = C 자리)"로 보낸다.
+//    예전처럼 글자 'c' 로 보내면 한글 입력 상태에서 macOS 가 Option 을 섞어 Option+⌘+C 가 될 수 있었음.
+let askedAccessibility = false;
+function macSelectedText() {
+  // 손쉬운 사용 권한이 없으면 한 번만 요청 창을 띄운다 (허용 후에는 자동으로 읽기 가능)
+  if (!askedAccessibility && !systemPreferences.isTrustedAccessibilityClient(false)) {
+    askedAccessibility = true;
+    systemPreferences.isTrustedAccessibilityClient(true);
+  }
+  return new Promise((resolve) => {
+    const bin = nativeHelperPath();
+    if (!fs.existsSync(bin)) return resolve('');
+    execFile(bin, ['--selected-text'], { timeout: 1500 }, (err, stdout) => {
+      try {
+        const r = JSON.parse(String(stdout || '').trim().split('\n').pop() || '{}');
+        resolve(typeof r.text === 'string' ? r.text : '');
+      } catch {
+        resolve('');
+      }
+    });
+  });
+}
+
+const MAC_COPY = `
 ObjC.import('Cocoa');
 var MODS = (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20); // Shift, Control, Option, Command
 for (var i = 0; i < 100; i++) {
   if (($.NSEvent.modifierFlags & MODS) === 0) break;
   delay(0.02);
 }
-Application('System Events').keystroke('c', { using: 'command down' });
+Application('System Events').keyCode(8, { using: 'command down' });
 'sent';
 `;
 
-// mode: 'fast' | 'safe' (맥에서만 의미 있음)
-function simulateCopy(mode = 'fast') {
+function simulateCopy() {
   return new Promise((resolve) => {
     const done = () => resolve();
     setTimeout(done, 2500); // 안전장치
@@ -479,7 +481,7 @@ function simulateCopy(mode = 'fast') {
         psWaiters.push(done);
         p.stdin.write('copy\n');
       } else if (isMac) {
-        execFile('osascript', ['-l', 'JavaScript', '-e', mode === 'safe' ? MAC_COPY_SAFE : MAC_COPY_FAST], done);
+        execFile('osascript', ['-l', 'JavaScript', '-e', MAC_COPY], done);
       } else {
         execFile('xdotool', ['key', '--clearmodifiers', 'ctrl+c'], done);
       }
@@ -497,7 +499,11 @@ async function quickAnalyze() {
   busy = true;
   try {
     let text = '';
-    if (config.autoCopy) {
+    // 맥: 먼저 선택된 글을 직접 읽어 본다 (클립보드·⌘C 없이)
+    if (isMac && config.autoCopy) text = await macSelectedText();
+    if (text.trim()) {
+      // 읽었으면 복사할 필요 없음
+    } else if (config.autoCopy) {
       const before = (await clipboard.readText());
       const marker = `__zhko_${Date.now()}__`;
       ignoreClipUntil = Date.now() + 3000;
@@ -508,11 +514,6 @@ async function quickAnalyze() {
         for (let i = 0; i < 10 && (await clipboard.readText()) === marker; i++) await new Promise((r) => setTimeout(r, 40));
       };
       await waitCopied();
-      // 맥: 빠른 방식이 통하지 않았으면(권한 없음 등) 안전한 방식으로 한 번 더
-      if (isMac && (await clipboard.readText()) === marker) {
-        await simulateCopy('safe');
-        await waitCopied();
-      }
       const after = (await clipboard.readText());
       if (after === marker || !after.trim()) {
         await clipboard.writeText(before); // 복사 실패 → 원래 클립보드 복원 후 그 내용 사용
@@ -578,42 +579,6 @@ function registerShortcuts() {
   return failed;
 }
 
-/* ---------------- 연속 탭 단축키 (⌘ 두 번 등) ---------------- */
-// 키보드 전체 입력을 지켜봐야 해서 uiohook 을 쓴다 (맥은 손쉬운 사용 권한 필요).
-// 연속 탭 단축키를 하나라도 설정했을 때만 켠다.
-
-let uio = null;
-let tapOn = false;
-const taps = createTapDetector(() => {
-  const m = {};
-  if (config.tapShortcut) m[config.tapShortcut] = () => quickAnalyze();
-  if (config.tapOcrShortcut && config.tapOcrShortcut !== config.tapShortcut) m[config.tapOcrShortcut] = () => startCapture();
-  return m;
-});
-
-function updateTapHook() {
-  const want = !!(config.tapShortcut || config.tapOcrShortcut);
-  if (want === tapOn) return;
-  try {
-    if (!uio) {
-      uio = require('uiohook-napi').uIOhook;
-      uio.on('keydown', (e) => taps.keydown(e.keycode));
-      uio.on('keyup', (e) => taps.keyup(e.keycode));
-      uio.on('mousedown', () => taps.reset());
-    }
-    if (want) {
-      if (isMac && !systemPreferences.isTrustedAccessibilityClient(false)) {
-        systemPreferences.isTrustedAccessibilityClient(true); // 권한 요청 창
-        notify('연속 탭 단축키를 쓰려면 시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용에서 이 앱을 허용한 뒤 앱을 다시 실행해 주세요.');
-      }
-      uio.start();
-    } else uio.stop();
-    tapOn = want;
-  } catch (e) {
-    notify('연속 탭 단축키를 켜지 못했습니다: ' + e.message);
-  }
-}
-
 function buildTrayMenu() {
   if (!tray) return;
   tray.setContextMenu(
@@ -652,7 +617,6 @@ function applyConfig(patch) {
     }
   }
   if ('watchClipboard' in patch) setWatch(config.watchClipboard);
-  if ('tapShortcut' in patch || 'tapOcrShortcut' in patch) updateTapHook();
   if ('autoUpdate' in patch) updater.start();
   if ('openAtLogin' in patch && !isLinux()) app.setLoginItemSettings({ openAtLogin: !!config.openAtLogin, args: ['--hidden'] });
   saveConfig();
@@ -823,11 +787,6 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   if (psProc) psProc.kill();
   if (native.proc) native.proc.kill();
-  if (uio && tapOn) {
-    try {
-      uio.stop();
-    } catch {}
-  }
 });
 app.on('window-all-closed', (e) => e.preventDefault?.());
 
@@ -867,7 +826,15 @@ app.whenReady().then(() => {
     }
   );
 
-  tray = new Tray(nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 }));
+  if (isMac) {
+    // 맥 메뉴 막대: 둥근 사각형에 学 글자만 뚫린 "템플릿" 아이콘 (trayTemplate.png + @2x)
+    // 템플릿 이미지는 macOS 가 다크 모드에선 흰색, 라이트 모드에선 검은색으로 칠한다
+    const img = nativeImage.createFromPath(path.join(__dirname, 'src', 'trayTemplate.png'));
+    img.setTemplateImage(true);
+    tray = new Tray(img);
+  } else {
+    tray = new Tray(nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 }));
+  }
   // 맥은 메뉴 막대 아이콘을 누르면 메뉴만 보여야 한다 (click 까지 처리하면 메인 창이 같이 열림)
   if (!isMac) tray.on('click', () => openMain());
   buildTrayMenu();
@@ -877,7 +844,6 @@ app.whenReady().then(() => {
     notify(`단축키 ${failedKeys.map((k) => prettyAcc(config[k])).join(', ')} 를 등록하지 못했습니다. 다른 프로그램이 사용 중일 수 있습니다. 설정에서 바꿔 주세요.`);
   }
   setWatch(config.watchClipboard);
-  updateTapHook();
   createQuick();
   if (isWin) windowsCopier(); // 미리 띄워 두면 첫 단축키가 빨라짐
 
