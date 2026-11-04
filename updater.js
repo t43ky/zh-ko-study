@@ -43,20 +43,28 @@ function cmpVersion(a, b) {
   return 0;
 }
 
+// 이 플랫폼(맥/Windows) 파일이 들어 있는 릴리스 중 가장 최신 것을 찾는다.
+// (예: 맥 빌드가 실패해 Windows 파일만 있는 릴리스는 맥 앱에서 건너뜀)
 async function fetchLatest() {
-  const res = await net.fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+  const res = await net.fetch(`https://api.github.com/repos/${REPO}/releases?per_page=15`, {
     headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'ZhKoStudy-Updater' },
     cache: 'no-store',
   });
   if (res.status === 404) return null; // 아직 릴리스 없음
   if (!res.ok) throw new Error(`업데이트 서버 응답 오류 (${res.status})`);
-  const r = await res.json();
-  const asset = (r.assets || []).find((a) => ASSET_RE.test(a.name));
+  const list = await res.json();
+  const withAsset = (Array.isArray(list) ? list : [])
+    .filter((r) => !r.draft && !r.prerelease)
+    .map((r) => ({ r, asset: (r.assets || []).find((a) => ASSET_RE.test(a.name)) }))
+    .filter((x) => x.asset)
+    .sort((a, b) => cmpVersion(b.r.tag_name, a.r.tag_name));
+  if (!withAsset.length) return null;
+  const { r, asset } = withAsset[0];
   return {
     version: String(r.tag_name || '').replace(/^v/i, ''),
     notes: (r.body || '').trim(),
-    url: asset ? asset.browser_download_url : null,
-    size: asset ? asset.size : 0,
+    url: asset.browser_download_url,
+    size: asset.size,
   };
 }
 
