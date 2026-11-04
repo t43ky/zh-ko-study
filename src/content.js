@@ -181,7 +181,10 @@
       const list = tr && !terms.slice(0, max).includes(tr) ? [tr, ...terms] : terms;
       return list.slice(0, max).join(', ');
     }
-    return lk.trans && lk.trans !== lk.word ? lk.trans : '';
+    if (lk.trans && lk.trans !== lk.word) return lk.trans;
+    // 한국어 뜻이 없으면 CC-CEDICT 영어 뜻이라도
+    if (lk.defs && lk.defs[0]) return lk.defs[0].gloss.split(' / ').slice(0, 2).join(', ');
+    return '';
   }
 
 
@@ -383,7 +386,7 @@
 
   function tokHtml(tok, i) {
     const s = state.settings;
-    if (!tok.zh) {
+    if (!tok.zh && !tok.expr) {
       const cls = tok.word ? 'other' : 'plain';
       return tok.t.trim() ? `<span class="${cls}">${esc(tok.t)}</span>` : '<span style="width:6px"></span>';
     }
@@ -465,7 +468,7 @@
         <button class="btn ${state.saved.has(tok.t) ? 'on' : ''}" data-act="c-save">${state.saved.has(tok.t) ? '★ 저장됨' : '☆ 단어 저장'}</button>
       </div>
       <div class="c-py">${zhChars.map((c) => esc(pyText(c, s.pinyinStyle))).join(' ')}
-        <span class="c-hj">한자음 ${esc(tokenHanja(tok))}</span></div>
+        ${zhChars.length ? `<span class="c-hj">한자음 ${esc(tokenHanja(tok))}</span>` : ''}</div>
       <div class="c-sec">뜻</div>
       <div class="c-meaning"><span class="loading">불러오는 중…</span></div>
       ${zhChars.length > 1 || (zhChars[0] && zhChars[0].poly) ? `<div class="c-sec">글자 풀이</div><div class="c-chars">${zhChars
@@ -502,6 +505,7 @@
       ? `<div class="c-main">${esc(lk.trans)}${lk.machine ? ' <span class="c-hj">(기계 번역)</span>' : ''}</div>`
       : '';
     for (const d of lk.dict || []) h += `<div class="c-pos">${d.pos ? `<b>${esc(d.pos)}</b>` : ''}${esc(d.terms.join(', '))}</div>`;
+    if (lk.usage) h += `<div class="c-pos"><b>쓰임</b>${esc(lk.usage)}</div>`;
     for (const d of lk.defs || []) h += `<div class="c-pos" style="color:var(--muted)">${d.pos ? `<b>${esc(d.pos)}</b>` : ''}${esc(d.gloss)}</div>`;
     return h || '<span class="loading">사전 정보가 없습니다</span>';
   }
@@ -590,7 +594,7 @@
       }
       const words = {};
       for (const t of state.tokens) {
-        if (!t.zh || words[t.t]) continue;
+        if (!(t.zh || t.expr) || words[t.t]) continue;
         const c = lookupCache.get(lkKey(t.t, tokenPinyin(t, 'mark')));
         if (c) {
           const lk = await c;

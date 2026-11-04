@@ -95,6 +95,14 @@ async function analyze(text) {
       chars: ci,
     });
   }
+  // 한자가 없는 인터넷 용어(yyds, 666 …)도 단어 박스로 보여 주기
+  const cand = tokens.filter((t) => !t.zh && t.word);
+  if (cand.length && typeof globalThis.zhkoExprCheck === 'function') {
+    const flags = await globalThis.zhkoExprCheck(cand.map((t) => t.t)).catch(() => []);
+    cand.forEach((t, i) => {
+      if (flags[i]) t.expr = true;
+    });
+  }
   fixDe(tokens);
   return {
     text,
@@ -209,7 +217,8 @@ async function lookup(word, py = '') {
     .map((x) => ({ pos: en.length > 1 ? '영어 ' + x.py : '영어', gloss: x.senses.slice(0, 5).join(' / ') }));
 
   if (!trans && !dict.length && !defs.length) return { word, error: gErr || '뜻을 찾지 못했습니다' };
-  const out = { word, trans, machine, dict, defs };
+  const head = koMain[0];
+  const out = { word, trans, machine, dict, defs, usage: (head && head.note) || '', kind: head && head.expr ? '관용 표현' : '' };
   cacheSet(key, out);
   return out;
 }

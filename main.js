@@ -181,7 +181,21 @@ const isLinux = () => process.platform === 'linux';
 
 let jieba = null;
 function getJieba() {
-  if (!jieba) jieba = require('jieba-wasm');
+  if (!jieba) {
+    jieba = require('jieba-wasm');
+    // 관용 표현·인터넷 용어는 한 단어로 묶이도록 사전에 추가 (下班愉快, 吃一堑长一智, 绝绝子 …)
+    // 이미 한 단어로 나뉘는 표현은 건드리지 않고, 두 글자 표현은 낮은 우선순위로 넣어
+    // 银行吧 → 银|行吧 처럼 기존 단어를 깨뜨리지 않게 한다
+    for (const w of dictionary.exprWords()) {
+      const n = Array.from(w).length;
+      if (n < 2) continue;
+      try {
+        const cut = jieba.cut(w, true);
+        if (cut.length === 1 && cut[0] === w) continue;
+        jieba.add_word(w, n === 2 ? 300 : 30000);
+      } catch {}
+    }
+  }
   return jieba;
 }
 
@@ -221,6 +235,7 @@ function segmentText(text) {
   for (const w of getJieba().cut(text, true)) {
     const n = Array.from(w).length;
     if (n < 2 || !ZH_RE.test(w)) out.push(w);
+    else if (dictionary.isExpr(w)) out.push(w); // 관용 표현은 길어도 그대로
     else if (n >= 5) out.push(...splitLong(w));
     else if (!dictionary.has(w)) out.push(...splitByDict(w));
     else out.push(w);
@@ -588,6 +603,10 @@ ipcMain.handle('config-set', (_e, patch) => applyConfig(patch || {}));
 ipcMain.handle('quick-hide', () => hideQuick());
 ipcMain.handle('segment', (_e, text) => segmentText(String(text || '')));
 ipcMain.handle('dict', (_e, word, py) => dictionary.lookup(word, py));
+// 한자가 없는 토큰(yyds, 666, emo …)이 인터넷 용어인지 (두 자리 이하 숫자는 가격 등과 헷갈려 제외)
+ipcMain.handle('expr-check', (_e, list) =>
+  (Array.isArray(list) ? list : []).map((w) => !/^\d{1,2}$/.test(String(w)) && dictionary.isExpr(String(w)))
+);
 ipcMain.handle('start-capture', () => startCapture({ fromMain: true }));
 ipcMain.handle('shortcuts-get', () => shortcutStatus());
 ipcMain.handle('update-status', () => updater.status());

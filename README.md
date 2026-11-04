@@ -26,6 +26,7 @@ Firefox 확장판과 같은 기능을 **독립 실행 프로그램**으로 만�
 
 ## 사전
 - `data/ko-chars-*.txt`: 자주 쓰는 한자·기능어의 한국어 뜻 (읽기별, 직접 작성). 수정 후 `npm run build-dict`
+- `data/ko-expr-*.txt`: 관용 표현·인터넷 용어·성어·속담 (`표현|뜻|쓰임`, 병음은 빌드 때 자동). 단어 나누기에서 한 덩어리로 묶임
 - `dict/cedict.tsv`: [CC-CEDICT](https://www.mdbg.net/chinese/dictionary?page=cedict) 기반 영어 뜻 (CC BY-SA 4.0)
 - 단어 뜻은 ① 한국어 사전 → ② 없으면 Google 번역 순서로 보여주고, CC-CEDICT 영어 뜻을 참고로 함께 표시합니다.
 

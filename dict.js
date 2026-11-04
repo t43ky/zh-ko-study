@@ -78,16 +78,17 @@ function orderByReading(entries, py) {
 function lookup(word, py) {
   load();
   word = String(word || '');
-  const k = orderByReading((ko[word] || []).map((e) => ({ py: e.py, s: e.s })), py);
+  const k = orderByReading((ko[word] || []).map((e) => ({ py: e.py, s: e.s, n: e.n, x: e.x })), py);
   const e = orderByReading((ced.get(word) || []).map((x) => ({ py: x.py, s: x.s })), py);
   const want = py ? normPy(py) : '';
   // 성조까지 같은 읽기가 있으면 그것만, 없으면(성조 변화 一·不 등) 성조를 무시하고 비교
   const anyExact = [...k, ...e].some((x) => x.py === want);
-  const matches = (x) => !want || x.py === want || (!anyExact && toneless(x.py) === toneless(want));
+  // 관용 표현(x)은 읽기와 상관없이 그 표현의 뜻
+  const matches = (x) => !want || !!x.x || x.py === want || (!anyExact && toneless(x.py) === toneless(want));
   return {
     word,
     // matched: 문맥 읽기와 맞는 항목인지 (아니면 다른 읽기의 뜻)
-    ko: k.slice(0, 4).map((x) => ({ py: numToMark(x.py), senses: x.s, matched: matches(x) })),
+    ko: k.slice(0, 4).map((x) => ({ py: numToMark(x.py), senses: x.s, matched: matches(x), note: x.n || '', expr: !!x.x })),
     en: e.slice(0, 3).map((x) => ({ py: numToMark(x.py), senses: x.s, matched: matches(x) })),
   };
 }
@@ -98,4 +99,15 @@ function has(word) {
   return ced.has(word) || !!ko[word];
 }
 
-module.exports = { lookup, has, normPy, numToMark };
+// 관용 표현 목록 (단어 나누기에서 한 덩어리로 묶음)
+let exprList = null;
+function exprWords() {
+  if (!exprList) exprList = JSON.parse(fs.readFileSync(path.join(__dirname, 'dict', 'expr-words.json'), 'utf8'));
+  return exprList;
+}
+const isExpr = (w) => {
+  load();
+  return !!(ko[w] && ko[w].some((e) => e.x));
+};
+
+module.exports = { lookup, has, isExpr, exprWords, normPy, numToMark };
