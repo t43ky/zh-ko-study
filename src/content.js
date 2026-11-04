@@ -216,17 +216,21 @@
   :host { all: initial; }
   * { box-sizing: border-box; }
   .wrap {
-    --bg: #fffdf9; --fg: #1c1917; --muted: #78716c; --line: #e7e0d6; --soft: #f5efe6;
-    --accent: #c2410c; --accent-soft: #ffedd5; --box: #ffffff; --box-hover: #fff7ed;
+    --bg: #ffffff; --fg: #18181b; --muted: #71717a; --line: #e4e4e7; --soft: #f4f4f5;
+    --accent: #dc2626; --accent-soft: #fee2e2; --box: #ffffff; --box-hover: #fef2f2;
     --shadow: 0 12px 40px rgba(28,25,23,.18), 0 2px 8px rgba(28,25,23,.08);
     font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
     color: var(--fg);
   }
+  /* 다크 모드: 시스템을 따르거나(호스트에 data-theme 없음) data-theme="dark" 로 고정 */
   @media (prefers-color-scheme: dark) {
-    .wrap { --bg: #1f1b18; --fg: #f5f0ea; --muted: #a8a29e; --line: #3a332d; --soft: #2a2420;
-      --accent: #fb923c; --accent-soft: #3b2615; --box: #27211d; --box-hover: #33291f;
+    :host(:not([data-theme="light"])) .wrap { --bg: #1b1b1e; --fg: #f4f4f5; --muted: #a1a1aa; --line: #2e2e33; --soft: #232327;
+      --accent: #f87171; --accent-soft: #3b1618; --box: #232327; --box-hover: #2d1d1f;
       --shadow: 0 12px 40px rgba(0,0,0,.5); }
   }
+  :host([data-theme="dark"]) .wrap { --bg: #1b1b1e; --fg: #f4f4f5; --muted: #a1a1aa; --line: #2e2e33; --soft: #232327;
+      --accent: #f87171; --accent-soft: #3b1618; --box: #232327; --box-hover: #2d1d1f;
+      --shadow: 0 12px 40px rgba(0,0,0,.5); }
   .zh { font-family: "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Source Han Sans SC", sans-serif; }
   .panel {
     position: absolute; width: min(640px, calc(100vw - 24px)); max-height: 70vh; display: flex; flex-direction: column;
@@ -301,6 +305,14 @@
     root = host.attachShadow({ mode: 'open' });
     root.innerHTML = `<style>${CSS}</style><div class="wrap"></div>`;
     (document.body || document.documentElement).appendChild(host);
+    // 앱 화면의 테마(html[data-theme])를 분석 창에도 그대로 적용 (웹페이지에서는 속성이 없어 시스템 설정을 따름)
+    const syncTheme = () => {
+      const t = document.documentElement.getAttribute('data-theme');
+      if (t) host.setAttribute('data-theme', t);
+      else host.removeAttribute('data-theme');
+    };
+    syncTheme();
+    new MutationObserver(syncTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   }
   const wrapEl = () => root.querySelector('.wrap');
 

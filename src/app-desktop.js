@@ -186,3 +186,28 @@
   window.addEventListener('hashchange', load);
 })();
 
+
+/* 화면 모드 (시스템 / 라이트 / 다크) */
+(() => {
+  const n = window.native;
+  const btn = document.getElementById('theme-btn');
+  const sel = document.getElementById('ap-theme');
+  const ICON = { system: '🌓', light: '☀️', dark: '🌙' };
+  const NAME = { system: '시스템 설정', light: '라이트', dark: '다크' };
+  const NEXT = { system: 'light', light: 'dark', dark: 'system' };
+  let cur = 'system';
+  function show(t) {
+    cur = ICON[t] ? t : 'system';
+    btn.textContent = ICON[cur];
+    btn.title = `화면 모드: ${NAME[cur]} (눌러서 바꾸기)`;
+    sel.value = cur;
+  }
+  async function set(t) {
+    show(t);
+    await n.invoke('config-set', { theme: t });
+  }
+  btn.addEventListener('click', () => set(NEXT[cur]));
+  sel.addEventListener('change', () => set(sel.value));
+  n.invoke('config-get').then((r) => show(r.config.theme));
+  n.on('config-changed', (c) => show(c.theme));
+})();

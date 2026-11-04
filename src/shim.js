@@ -49,6 +49,14 @@
   // 애플 번역 (맥 앱 전용, 메인 프로세스). 다른 OS 에서는 null
   window.zhkoNative = (text) => n.invoke('native-translate', text);
 
+  // 화면 모드: 설정의 theme(system|light|dark)을 html[data-theme] 으로 반영 (system 이면 속성 없음 → OS 설정을 따름)
+  const applyTheme = (t) => {
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    else document.documentElement.removeAttribute('data-theme');
+  };
+  n.invoke('config-get').then((r) => applyTheme(r.config.theme)).catch(() => {});
+  n.on('config-changed', (c) => applyTheme(c.theme));
+
   window.browser = {
     storage: {
       local: {

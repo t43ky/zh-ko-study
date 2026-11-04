@@ -6,7 +6,7 @@
 'use strict';
 
 const {
-  app, BrowserWindow, globalShortcut, clipboard, ipcMain, Tray, Menu, nativeImage, screen, shell, session, Notification, dialog, desktopCapturer, systemPreferences,
+  app, BrowserWindow, globalShortcut, clipboard, ipcMain, Tray, Menu, nativeImage, screen, shell, session, Notification, dialog, desktopCapturer, systemPreferences, nativeTheme,
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -40,6 +40,7 @@ const DEFAULT_CONFIG = {
   autoCopy: true,
   watchClipboard: false,
   openAtLogin: false,
+  theme: 'system', // system | light | dark
   shownTrayHint: false,
   askedShortcuts: false,
   autoUpdate: true,
@@ -115,10 +116,10 @@ function guardNavigation(win) {
 function openMain(hash = 'analyze') {
   if (!mainWin || mainWin.isDestroyed()) {
     mainWin = new BrowserWindow({
-      width: 1040,
+      width: 600,
       height: 820,
-      minWidth: 420,
-      minHeight: 400,
+      minWidth: 380,
+      minHeight: 420,
       title: '중한 공부 번역기',
       icon: iconPath,
       autoHideMenuBar: true,
@@ -579,6 +580,11 @@ function registerShortcuts() {
   return failed;
 }
 
+// 화면 테마: 시스템 설정을 따르거나 라이트/다크로 고정 (모든 창의 prefers-color-scheme 에 반영)
+function applyTheme() {
+  nativeTheme.themeSource = ['light', 'dark'].includes(config.theme) ? config.theme : 'system';
+}
+
 function buildTrayMenu() {
   if (!tray) return;
   tray.setContextMenu(
@@ -617,6 +623,7 @@ function applyConfig(patch) {
     }
   }
   if ('watchClipboard' in patch) setWatch(config.watchClipboard);
+  if ('theme' in patch) applyTheme();
   if ('autoUpdate' in patch) updater.start();
   if ('openAtLogin' in patch && !isLinux()) app.setLoginItemSettings({ openAtLogin: !!config.openAtLogin, args: ['--hidden'] });
   saveConfig();
@@ -794,6 +801,7 @@ global.__zhkoQuick = () => quickAnalyze(); // 테스트·디버그용
 global.__zhkoCapture = () => startCapture(); // 테스트·디버그용
 
 app.whenReady().then(() => {
+  applyTheme();
   if (isWin) app.setAppUserModelId('local.zhko.study');
   // 맥: 응용 프로그램 폴더 밖(다운로드 폴더 등)에서 실행하면 옮길지 묻는다 (자동 업데이트를 위해 필요)
   if (isMac && app.isPackaged && !app.isInApplicationsFolder() && !config.askedMoveToApps) {

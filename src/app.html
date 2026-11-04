@@ -18,6 +18,7 @@
         <a href="#quiz" data-tab="quiz">테스트</a>
         <a href="#settings" data-tab="settings">설정</a>
       </nav>
+      <button class="ghost theme-btn" id="theme-btn" title="화면 모드 바꾸기">🌓</button>
     </div>
   </header>
   <main>
@@ -69,6 +70,9 @@
     <!-- 설정 -->
     <section id="tab-settings" hidden class="settings">
       <h2>설정</h2>
+      <h3>화면</h3>
+      <label class="opt-row"><span>화면 모드<small>시스템 설정을 따르거나 라이트·다크로 고정합니다 (위쪽 🌓 버튼으로도 바꿀 수 있음)</small></span>
+        <select id="ap-theme"><option value="system">시스템 설정</option><option value="light">라이트</option><option value="dark">다크</option></select></label>
       <h3>분석 창 표시</h3>
       <label class="opt-row"><input type="checkbox" data-k="showPinyin"><span>병음 표시<small>각 단어 아래에 병음을 표시합니다</small></span></label>
       <label class="opt-row"><span>병음 표기 방식<small>성조 부호(xué) 또는 숫자(xue2)</small></span>
