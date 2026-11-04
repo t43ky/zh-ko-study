@@ -43,7 +43,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.primary:hover { filter: brightness(1.08); color: #fff; }
 button.ghost { border-color: transparent; background: transparent; padding: 5px 8px; }
 button:disabled { opacity: .45; cursor: default; }
-input[type=text], input[type=search], input[type=password], textarea, select {
+input[type=text], input[type=search], textarea, select {
   font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 8px 11px;
 }
 input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }

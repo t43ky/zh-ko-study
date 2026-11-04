@@ -6,14 +6,13 @@
 'use strict';
 
 const {
-  app, BrowserWindow, globalShortcut, clipboard, ipcMain, Tray, Menu, nativeImage, screen, shell, session, Notification, dialog, desktopCapturer, safeStorage,
+  app, BrowserWindow, globalShortcut, clipboard, ipcMain, Tray, Menu, nativeImage, screen, shell, session, Notification, dialog, desktopCapturer,
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn, execFile } = require('child_process');
 const { createUpdater, runApplyHelper, afterUpdateStartup } = require('./updater');
 const dictionary = require('./dict');
-const { createAi } = require('./ai');
 
 const ZH_RE = /[㐀-䶿一-鿿豈-﫿]/;
 const isMac = process.platform === 'darwin';
@@ -65,16 +64,6 @@ function writeJson(file, data) {
 let data = readJson(DATA_FILE, {});
 let config = Object.assign({}, DEFAULT_CONFIG, readJson(CONFIG_FILE, {}));
 const saveConfig = () => writeJson(CONFIG_FILE, config);
-
-// AI 번역 (Claude). API 키는 config.json 에 사용자 계정으로 암호화해서 저장
-const ai = createAi({
-  getConfig: () => config,
-  setConfig: (patch) => {
-    config = Object.assign({}, config, patch);
-    saveConfig();
-  },
-  safeStorage,
-});
 
 /* ---------------- 창 ---------------- */
 
@@ -599,33 +588,6 @@ ipcMain.handle('config-set', (_e, patch) => applyConfig(patch || {}));
 ipcMain.handle('quick-hide', () => hideQuick());
 ipcMain.handle('segment', (_e, text) => segmentText(String(text || '')));
 ipcMain.handle('dict', (_e, word, py) => dictionary.lookup(word, py));
-ipcMain.handle('ai-status', () => ai.status());
-ipcMain.handle('ai-set', (_e, patch = {}) => {
-  if ('key' in patch) ai.storeKey(String(patch.key || '').trim());
-  const p = {};
-  if ('model' in patch) p.aiModel = patch.model;
-  if ('enabled' in patch) p.aiEnabled = !!patch.enabled;
-  if (Object.keys(p).length) {
-    config = Object.assign({}, config, p);
-    saveConfig();
-  }
-  return ai.status();
-});
-ipcMain.handle('ai-test', async () => {
-  try {
-    return { ok: true, text: await ai.test() };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
-});
-ipcMain.handle('ai-translate', async (_e, text, tokens) => {
-  if (!ai.isOn()) return null;
-  try {
-    return await ai.translate(String(text || ''), Array.isArray(tokens) ? tokens.map(String) : []);
-  } catch (e) {
-    return { error: e.message };
-  }
-});
 ipcMain.handle('start-capture', () => startCapture({ fromMain: true }));
 ipcMain.handle('shortcuts-get', () => shortcutStatus());
 ipcMain.handle('update-status', () => updater.status());

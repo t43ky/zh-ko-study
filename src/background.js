@@ -144,23 +144,16 @@ async function gtx(q, opts = {}) {
   return res.json();
 }
 
-// 문장 번역: AI(Claude, 설정에 API 키가 있을 때) → 실패하거나 없으면 Google
-async function translate(text, tokens) {
-  let aiError = '';
-  if (typeof globalThis.zhkoAI === 'function' && Array.isArray(tokens)) {
-    const r = await globalThis.zhkoAI(text, tokens).catch((e) => ({ error: e.message }));
-    if (r && !r.error) return { translation: r.translation, words: r.words || {}, note: r.note || '', source: 'claude', model: r.model };
-    if (r && r.error) aiError = r.error; // null 이면 AI 꺼짐
-  }
+async function translate(text) {
   const key = 'T:' + text;
-  let out = memCache.get(key);
-  if (!out) {
-    const data = await gtx(text, { dt: ['t', 'rm'] });
-    const sentences = data.sentences || [];
-    out = { translation: sentences.filter((s) => s.trans != null).map((s) => s.trans).join(''), source: 'google' };
-    cacheSet(key, out);
-  }
-  return aiError ? Object.assign({}, out, { aiError }) : out;
+  if (memCache.has(key)) return memCache.get(key);
+  const data = await gtx(text, { dt: ['t', 'rm'] });
+  const sentences = data.sentences || [];
+  const out = {
+    translation: sentences.filter((s) => s.trans != null).map((s) => s.trans).join(''),
+  };
+  cacheSet(key, out);
+  return out;
 }
 
 // 단어 뜻: 직접 만든 한국어 사전 + CC-CEDICT(영어) + Google 번역을 합친다
@@ -358,7 +351,7 @@ api.runtime.onMessage.addListener((msg, sender) => {
     case 'analyze':
       return Promise.resolve(analyze(msg.text));
     case 'translate':
-      return translate(msg.text, msg.tokens).catch((e) => ({ error: e.message }));
+      return translate(msg.text).catch((e) => ({ error: e.message }));
     case 'lookup':
       return lookup(msg.text, msg.py || '').catch((e) => ({ error: e.message }));
     case 'charinfo':

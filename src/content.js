@@ -266,9 +266,6 @@
   .c-head { display: flex; align-items: center; gap: 6px; }
   .c-word { font-size: 28px; font-weight: 600; margin-right: auto; line-height: 1.2; }
   .c-py { font-size: 15px; margin-top: 2px; }
-  .c-ctx { font-size: 15px; font-weight: 600; color: var(--accent); }
-  .trans-note { font-size: 13px; margin-top: 8px; color: var(--fg); opacity: .85; }
-  .trans-meta { font-size: 11px; margin-top: 6px; color: var(--muted); }
   .c-hj { font-size: 12.5px; color: var(--muted); margin-left: 6px; }
   .c-sec { font-size: 11px; font-weight: 700; color: var(--muted); margin: 12px 0 4px; letter-spacing: .04em; }
   .c-main { font-size: 15px; font-weight: 600; }
@@ -358,18 +355,10 @@
 
     // 전체 번역
     const myState = state;
-    const reqTokens = state.tokens.slice();
-    api.runtime.sendMessage({ type: 'translate', text: state.text, tokens: reqTokens.map((t) => t.t) }).then((r) => {
+    api.runtime.sendMessage({ type: 'translate', text: state.text }).then((r) => {
       if (state !== myState) return;
       if (!r || r.error) state.transError = (r && r.error) || '번역 실패';
-      else {
-        state.translation = r.translation;
-        state.transSource = r.source || 'google';
-        state.transNote = r.note || '';
-        state.aiError = r.aiError || '';
-        // AI 가 알려준 "이 문장에서의 뜻"을 단어에 붙여 둔다 (나누기/합치기로 바뀐 단어에는 붙지 않음)
-        for (const [i, m] of Object.entries(r.words || {})) if (reqTokens[i]) reqTokens[i].ctx = m;
-      }
+      else state.translation = r.translation;
       renderTranslation();
     });
 
@@ -440,14 +429,7 @@
     if (!el) return;
     if (state.transError) el.innerHTML = `<span class="err">${esc(state.transError)}</span>`;
     else if (state.translation == null) el.innerHTML = '<span class="loading">번역 중…</span>';
-    else {
-      el.innerHTML =
-        esc(state.translation) +
-        (state.transNote ? `<div class="trans-note">💡 ${esc(state.transNote)}</div>` : '') +
-        `<div class="trans-meta">${state.transSource === 'claude' ? 'Claude 번역' : 'Google 번역'}${
-          state.aiError ? ` · <span class="err">AI 번역 실패: ${esc(state.aiError)}</span>` : ''
-        }</div>`;
-    }
+    else el.textContent = state.translation;
   }
 
   /* ================= 상세 카드 ================= */
@@ -484,8 +466,7 @@
       </div>
       <div class="c-py">${zhChars.map((c) => esc(pyText(c, s.pinyinStyle))).join(' ')}
         <span class="c-hj">한자음 ${esc(tokenHanja(tok))}</span></div>
-      ${tok.ctx ? `<div class="c-sec">이 문장에서</div><div class="c-ctx">${esc(tok.ctx)}</div>` : ''}
-      <div class="c-sec">${tok.ctx ? '사전 뜻' : '뜻'}</div>
+      <div class="c-sec">뜻</div>
       <div class="c-meaning"><span class="loading">불러오는 중…</span></div>
       ${zhChars.length > 1 || (zhChars[0] && zhChars[0].poly) ? `<div class="c-sec">글자 풀이</div><div class="c-chars">${zhChars
         .map(
@@ -582,7 +563,6 @@
         chars: tok.chars.filter((c) => c.zh).map((c) => ({ c: c.c, py: c.py, tone: c.tone, hj: c.hj })),
         context: state.text,
         contextTranslation: state.translation || '',
-        contextMeaning: tok.ctx || '',
         source: state.source,
       });
       state.saved.add(word);
@@ -605,7 +585,7 @@
       toast('보관함에서 뺐습니다');
     } else {
       if (state.translation == null && !state.transError) {
-        const r = await api.runtime.sendMessage({ type: 'translate', text: state.text, tokens: state.tokens.map((t) => t.t) });
+        const r = await api.runtime.sendMessage({ type: 'translate', text: state.text });
         if (r && !r.error) state.translation = r.translation;
       }
       const words = {};
@@ -622,7 +602,7 @@
         text: state.text,
         pinyin: state.tokens.filter((t) => t.zh).map((t) => tokenPinyin(t).replace(/ /g, '')).join(' '),
         translation: state.translation || '',
-        tokens: state.tokens.filter((t) => t.t.trim()).map((t) => ({ t: t.t, zh: t.zh, py: t.zh ? tokenPinyin(t) : '', m: t.ctx || words[t.t] || '' })),
+        tokens: state.tokens.filter((t) => t.t.trim()).map((t) => ({ t: t.t, zh: t.zh, py: t.zh ? tokenPinyin(t) : '', m: words[t.t] || '' })),
         source: state.source,
       });
       state.sentenceSaved = true;

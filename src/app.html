@@ -103,18 +103,6 @@
         바로가기를 만든 뒤에는 이 폴더를 옮기거나 지우지 마세요. 폴더를 옮겼다면 새 위치에서 프로그램을 실행한 뒤 바로가기를 다시 만드세요.<br>
         완전히 삭제하려면: 바로가기 삭제 → 트레이에서 종료 → 프로그램 폴더 삭제 (보관함 데이터는 <code>%APPDATA%\ZhKoStudy</code>에 남습니다)</p>
       </div>
-      <h3>AI 번역 (Claude)</h3>
-      <p class="small muted">Anthropic API 키를 넣으면 문장 번역을 Claude 가 맡아 문맥에 맞게 더 자연스럽게 번역하고,
-        단어마다 <b>이 문장에서의 뜻</b>과 문법 포인트를 함께 알려줍니다. 키가 없거나 실패하면 지금처럼 Google 번역을 씁니다.<br>
-        키 발급: <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>
-        (사용한 만큼 요금이 나갑니다. Haiku 5.5 기준 문장 1,000개에 약 $0.25)</p>
-      <p class="small" id="ai-status"></p>
-      <label class="opt-row"><span>API 키<small>이 컴퓨터에만 저장되며, Windows 사용자 계정으로 암호화됩니다</small></span>
-        <input type="password" id="ai-key" style="width:240px" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
-        <button id="ai-key-save">저장</button><button id="ai-key-del">삭제</button></label>
-      <label class="opt-row"><span>모델</span><select id="ai-model"></select></label>
-      <label class="opt-row"><input type="checkbox" id="ai-enabled"><span>AI 번역 사용<small>끄면 API 키를 지우지 않고 Google 번역만 씁니다</small></span></label>
-      <div class="toolbar"><button id="ai-test">연결 테스트</button><span class="small muted" id="ai-test-r"></span></div>
       <h3>업데이트</h3>
       <p class="small" id="up-status">현재 버전 확인 중…</p>
       <div class="toolbar">

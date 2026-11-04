@@ -1,7 +1,7 @@
 {
   "name": "zh-ko-study-app",
   "productName": "ZhKoStudy",
-  "version": "1.6.0",
+  "version": "1.5.0",
   "description": "중한 공부 번역기 - 데스크톱 앱",
   "main": "main.js",
   "author": "zh-ko-study",
@@ -25,8 +25,7 @@
       "package.json",
       "updater.js",
       "dict.js",
-      "dict/**/*",
-      "ai.js"
+      "dict/**/*"
     ],
     "directories": {
       "output": "dist",
@@ -71,9 +70,7 @@
     "url": "https://github.com/t43ky/zh-ko-study.git"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.4.0",
     "jieba-wasm": "^2.4.0",
-    "yauzl": "^3.4.0",
-    "zod": "^4.6.7"
+    "yauzl": "^3.4.0"
   }
 }

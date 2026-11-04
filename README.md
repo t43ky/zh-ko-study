@@ -24,11 +24,6 @@ Firefox 확장판과 같은 기능을 **독립 실행 프로그램**으로 만�
 - 바로가기를 만든 뒤에는 프로그램 폴더를 옮기거나 지우지 마세요.
 - 삭제: 설정 → 설치 → 바로가기 삭제 → 트레이에서 종료 → 프로그램 폴더 삭제.
 
-## AI 번역 (Claude, 선택)
-- 설정 → AI 번역에 [Anthropic API 키](https://console.anthropic.com/settings/keys)를 넣으면 문장 번역과 단어별 문맥 뜻, 문법 포인트를 Claude 가 만듭니다 (`ai.js`).
-- 기본 모델은 Claude Haiku 5.5 (문장 1,000개에 약 $0.25), 설정에서 Claude Sonnet 5.5 로 바꿀 수 있습니다.
-- 키는 `config.json`에 Electron `safeStorage`(Windows DPAPI)로 암호화해 저장합니다. 키가 없거나 실패하면 Google 번역을 씁니다.
-
 ## 사전
 - `data/ko-chars-*.txt`: 자주 쓰는 한자·기능어의 한국어 뜻 (읽기별, 직접 작성). 수정 후 `npm run build-dict`
 - `dict/cedict.tsv`: [CC-CEDICT](https://www.mdbg.net/chinese/dictionary?page=cedict) 기반 영어 뜻 (CC BY-SA 4.0)
