@@ -45,6 +45,8 @@
   window.zhkoSegment = (text) => n.invoke('segment', text);
   // 사전 조회 (한국어 뜻 + CC-CEDICT, 메인 프로세스)
   window.zhkoDict = (word, py) => n.invoke('dict', word, py);
+  // AI 번역 (Claude, 메인 프로세스). 꺼져 있으면 null
+  window.zhkoAI = (text, tokens) => n.invoke('ai-translate', text, tokens);
 
   window.browser = {
     storage: {
