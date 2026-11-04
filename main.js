@@ -416,21 +416,34 @@ while ($true) {
 }
 
 // 맥 자동 복사 스크립트 (JavaScript for Automation)
+// ⌘C 키 이벤트를 직접 만들어 보내면서 수정 키를 "⌘ 만"으로 못 박는다.
+// → 단축키의 Control/Option 을 아직 누르고 있어도 앱에는 정확히 ⌘C 만 전달된다
+//   (예전 방식은 Option 이 섞여 Option+⌘+C = 사파리 개발자 도구가 열렸음).
+// 실패하면 예전 방식(수정 키를 뗄 때까지 기다렸다가 System Events 로 ⌘C)으로 대신한다.
 const MAC_COPY_JXA = `
 ObjC.import('Cocoa');
-var MODS = (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20); // Shift, Control, Option, Command
-var released = false;
-for (var i = 0; i < 100; i++) {           // 최대 2초
-  if (($.NSEvent.modifierFlags & MODS) === 0) { released = true; break; }
-  delay(0.02);
+ObjC.import('CoreGraphics');
+var CMD = 0x100000;            // kCGEventFlagMaskCommand
+var KEY_C = 8;                 // kVK_ANSI_C
+var ok = false;
+try {
+  var src = $.CGEventSourceCreate(-1);              // kCGEventSourceStatePrivate: 실제 키보드 상태와 분리
+  var down = $.CGEventCreateKeyboardEvent(src, KEY_C, true);
+  var up = $.CGEventCreateKeyboardEvent(src, KEY_C, false);
+  $.CGEventSetFlags(down, CMD);
+  $.CGEventSetFlags(up, CMD);
+  $.CGEventPost(0, down);                           // kCGHIDEventTap
+  $.CGEventPost(0, up);
+  ok = true;
+} catch (e) {}
+if (!ok) {
+  var MODS = (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20);
+  for (var i = 0; i < 100; i++) {
+    if (($.NSEvent.modifierFlags & MODS) === 0) break;
+    delay(0.02);
+  }
+  Application('System Events').keystroke('c', { using: 'command down' });
 }
-var se = Application('System Events');
-if (!released) {
-  // 2초가 지나도 누르고 있으면 수정 키를 뗀 것으로 처리한 뒤 복사
-  try { se.keyUp(59); se.keyUp(58); se.keyUp(56); } catch (e) {} // control, option, shift
-}
-delay(0.05);
-se.keystroke('c', { using: 'command down' });
 `;
 
 function simulateCopy() {
